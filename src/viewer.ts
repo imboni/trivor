@@ -15,6 +15,7 @@ interface Vector3D {
 
 interface ModelViewerElement extends HTMLElement {
   src: string | null;
+  readonly loaded: boolean;
   cameraTarget: string;
   cameraOrbit: string;
   disableZoom: boolean;
@@ -35,7 +36,8 @@ const INTERPOLATION_DECAY_MS = 55;
 const WHEEL_DELTA_SCALE = 0.55;
 /** model-viewer attribute; default is 1. */
 const ZOOM_SENSITIVITY = "0.82";
-const AUTO_ROTATE_SPEED = "28deg";
+/** Degrees per second; model-viewer default feels fast in cinema mode. */
+const AUTO_ROTATE_SPEED = "6deg";
 const AUTO_ROTATE_DELAY_MS = 0;
 
 export interface SavedCamera {
@@ -118,12 +120,21 @@ function waitFrames(count: number): Promise<void> {
   });
 }
 
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const SETTLE_TIMEOUT_MS = 8_000;
+const LOAD_POLL_MS = 100;
+const LOAD_TIMEOUT_MS = 120_000;
+
 /** Wait until orbit radius and FOV stop changing (post-load interpolation). */
 async function waitForCameraSettled(mv: ModelViewerElement): Promise<void> {
   let lastRadius = Number.NaN;
   let lastFov = Number.NaN;
   let stableFrames = 0;
-  for (let i = 0; i < 90; i++) {
+  const maxFrames = 72;
+  for (let i = 0; i < maxFrames; i++) {
     const { radius } = mv.getCameraOrbit();
     const fov = mv.getFieldOfView();
     const radiusStable =
@@ -138,6 +149,13 @@ async function waitForCameraSettled(mv: ModelViewerElement): Promise<void> {
     lastFov = fov;
     await waitFrames(1);
   }
+}
+
+/** Drop previous model camera so the next load frames cleanly (no full element recreate). */
+function resetCameraForSwap(mv: ModelViewerElement): void {
+  mv.cameraTarget = "auto auto auto";
+  mv.cameraOrbit = "auto auto auto";
+  mv.fieldOfView = "auto";
 }
 
 /** WKWebView eats wheel on the shell — forward to model-viewer's `.userInput` layer. */
@@ -163,6 +181,7 @@ export class ModelViewport {
 
   private savedCamera: SavedCamera | null = null;
   private loadGen = 0;
+  private loadAbort?: AbortController;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -195,36 +214,103 @@ export class ModelViewport {
     this.host.focus();
   }
 
-  async load(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<void> {
+  async load(
+    assetUrl: string,
+    loadErrorMessage = "Failed to load model",
+    restore?: SavedCamera | null,
+  ): Promise<void> {
     await customElements.whenDefined("model-viewer");
+    this.loadAbort?.abort();
+    const abort = new AbortController();
+    this.loadAbort = abort;
     const gen = ++this.loadGen;
     const mv = this.mv;
 
     const settle = async (): Promise<void> => {
       if (gen !== this.loadGen || !mv.src) return;
-      await mv.updateFraming();
-      await mv.updateComplete;
+      try {
+        await Promise.race([
+          (async () => {
+            await mv.updateFraming();
+            await mv.updateComplete;
+            if (gen !== this.loadGen || !mv.src) return;
+            await waitForCameraSettled(mv);
+          })(),
+          waitMs(SETTLE_TIMEOUT_MS),
+        ]);
+      } catch {
+        /* framing is best-effort */
+      }
       if (gen !== this.loadGen || !mv.src) return;
-      await waitForCameraSettled(mv);
-      if (gen !== this.loadGen || !mv.src) return;
-      this.captureInitialCamera();
+
+      if (restore) {
+        this.savedCamera = { ...restore };
+        this.applySavedCamera();
+        await waitForCameraSettled(mv);
+      } else {
+        this.captureInitialCamera();
+      }
     };
 
     this.savedCamera = null;
-    mv.src = assetUrl;
 
-    await new Promise<void>((resolve, reject) => {
-      const onLoad = () => {
-        void settle().then(resolve);
-      };
-      const onError = () => reject(new Error(loadErrorMessage));
-      mv.addEventListener("load", onLoad, { once: true });
-      mv.addEventListener("error", onError, { once: true });
-    });
+    if (mv.src && mv.src !== assetUrl) {
+      resetCameraForSwap(mv);
+      mv.src = null;
+      await waitFrames(3);
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let done = false;
+        const finish = (fn: () => void) => {
+          if (done) return;
+          if (gen !== this.loadGen) {
+            done = true;
+            resolve();
+            return;
+          }
+          done = true;
+          fn();
+        };
+        let modelReady = false;
+        const onReady = () => {
+          if (modelReady) return;
+          modelReady = true;
+          void settle().finally(() => finish(resolve));
+        };
+        const onError = () => finish(() => reject(new Error(loadErrorMessage)));
+        abort.signal.addEventListener("abort", () => finish(resolve), { once: true });
+        mv.addEventListener("load", onReady, { once: true, signal: abort.signal });
+        mv.addEventListener("error", onError, { once: true, signal: abort.signal });
+
+        resetCameraForSwap(mv);
+        mv.src = assetUrl;
+
+        void (async () => {
+          const deadline = Date.now() + LOAD_TIMEOUT_MS;
+          while (!done && !abort.signal.aborted && gen === this.loadGen) {
+            if (mv.src === assetUrl && mv.loaded) {
+              onReady();
+              return;
+            }
+            if (Date.now() >= deadline) break;
+            await waitMs(LOAD_POLL_MS);
+          }
+          if (!done && gen === this.loadGen && !abort.signal.aborted) {
+            onError();
+          }
+        })();
+      });
+    } finally {
+      if (this.loadAbort === abort) this.loadAbort = undefined;
+    }
   }
 
   /** Drop the WebGL scene; recreating the element is reliable in WKWebView. */
   clear(): void {
+    this.loadAbort?.abort();
+    this.loadAbort = undefined;
     this.loadGen++;
     this.savedCamera = null;
     this.mv.remove();

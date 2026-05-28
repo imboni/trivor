@@ -139,8 +139,9 @@ export class App {
     watchSystemTheme(() => this.ui.theme_pref as ThemePref);
     this.applyUi();
     await onLoadProgress((p) => {
-      this.loadPercent = p;
-      if (this.phase === "loading") this.paintOverlay();
+      if (this.phase !== "loading" || this.loadingStage !== "parse") return;
+      this.loadPercent = Math.min(p, 90);
+      this.paintOverlay();
     });
     await listen<string>("menu-action", (e) => this.onMenuAction(e.payload));
     await listen<string>("open-path", (e) => {
@@ -730,6 +731,11 @@ export class App {
       return;
     }
 
+    const prevPath = this.activePath;
+    if (prevPath && prevPath !== path && this.phase === "ready") {
+      this.persistCameraForPath(prevPath);
+    }
+
     const token = ++this.loadToken;
     this.activePath = path;
     this.phase = "loading";
@@ -744,31 +750,38 @@ export class App {
       const cached = this.summaryCache.get(path);
 
       this.loadingStage = "render";
-      this.loadPercent = cached ? 95 : 20;
+      this.loadPercent = cached ? 40 : 10;
       this.paintOverlay();
-
-      const viewerPath = await resolveViewerModelPath(path);
-      this.loadPercent = cached ? 95 : 55;
-      this.paintOverlay();
-
-      const assetUrl = convertFileSrc(viewerPath, "asset");
 
       if (this.cinemaMode) {
         this.viewport.setAutoRotate(false);
         this.paintCinemaControls();
       }
-      /** Recreate the viewer so the previous model cannot affect camera or framing. */
-      this.viewport.clear();
 
-      const viewerPromise = this.viewport.load(assetUrl, this.ui.error_viewer_load);
       const summaryPromise = cached
         ? Promise.resolve(cached)
         : loadModel(path).then((summary) => {
             this.summaryCache.set(path, summary);
             return summary;
           });
+      const viewerPathPromise = resolveViewerModelPath(path).then((viewerPath) => {
+        this.loadPercent = Math.max(this.loadPercent, cached ? 70 : 45);
+        this.paintOverlay();
+        return viewerPath;
+      });
 
-      const [summary] = await Promise.all([summaryPromise, viewerPromise]);
+      const [summary, viewerPath] = await Promise.all([summaryPromise, viewerPathPromise]);
+      if (token !== this.loadToken) return;
+
+      this.loadPercent = 85;
+      this.paintOverlay();
+
+      const assetUrl = convertFileSrc(viewerPath, "asset");
+      this.loadPercent = 92;
+      this.paintOverlay();
+
+      const restore = this.cameraByPath.get(path);
+      await this.viewport.load(assetUrl, this.ui.error_viewer_load, restore);
 
       if (token !== this.loadToken) return;
       if (
@@ -776,7 +789,9 @@ export class App {
         this.activePath !== path ||
         !this.models.some((m) => m.path === path)
       ) {
-        this.viewport.clear();
+        if (token === this.loadToken && this.phase === "loading") {
+          this.phase = this.models.length === 0 ? "empty" : "ready";
+        }
         return;
       }
 
@@ -786,8 +801,10 @@ export class App {
         entry.file_size = summary.file_size;
         this.tryUpsertModel(entry);
       }
-      this.phase = "ready";
       this.saveInitialCameraForPath(path);
+      this.phase = "ready";
+      this.loadPercent = 100;
+      this.paintOverlay();
       if (this.cinemaMode && !this.cinemaRotatePaused) {
         this.resetView();
         this.viewport.setAutoRotate(true);

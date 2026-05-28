@@ -122,15 +122,19 @@ pub fn scan_models_folder(
 
 /// Returns a path model-viewer can load (packs separate `.gltf` into a cached `.glb`).
 #[tauri::command]
-pub fn resolve_viewer_model_path(
+pub async fn resolve_viewer_model_path(
     path: String,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
-    let state = state.lock().expect("app state");
-    let i18n = I18n::new(state.locale);
-    resolve_viewer_model(Path::new(&path))
-        .map(|p| p.to_string_lossy().into_owned())
-        .map_err(|e| format_load_error(e, &i18n))
+    let locale = state.lock().expect("app state").locale;
+    async_runtime::spawn_blocking(move || {
+        let i18n = I18n::new(locale);
+        resolve_viewer_model(Path::new(&path))
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|e| format_load_error(e, &i18n))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
