@@ -45,7 +45,7 @@ npm run tauri dev
 npm run tauri build -- --target universal-apple-darwin
 ```
 
-The `.app` and `.dmg` appear under `target/universal-apple-darwin/release/bundle/macos/`.
+The `.app` is under `bundle/macos/` and the `.dmg` under `bundle/dmg/` in `target/universal-apple-darwin/release/`.
 
 Optional signed / notarized builds: see [docs/RELEASE.md](docs/RELEASE.md).
 

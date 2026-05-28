@@ -40,29 +40,30 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 
-      - name: Package release artifacts
+      - name: Locate DMG
+        id: dmg
         run: |
           set -euo pipefail
-          BUNDLE="target/universal-apple-darwin/release/bundle/macos"
-          if [ ! -d "$BUNDLE" ]; then
-            BUNDLE="target/release/bundle/macos"
+          ROOT="target/universal-apple-darwin/release/bundle"
+          if [ ! -d "$ROOT" ]; then
+            ROOT="target/release/bundle"
           fi
-          ls -la "$BUNDLE"
-          mkdir -p release-artifacts
-          cp -R "$BUNDLE"/*.app release-artifacts/
-          if ls "$BUNDLE"/*.dmg 1>/dev/null 2>&1; then
-            cp "$BUNDLE"/*.dmg release-artifacts/
+          DMG=$(find "$ROOT" -maxdepth 2 -name '*.dmg' -print | head -1)
+          if [ -z "$DMG" ]; then
+            echo "No .dmg found under $ROOT"
+            find "$ROOT" -type f 2>/dev/null || true
+            exit 1
           fi
-          (cd release-artifacts && zip -r ../Trivor-macos-universal.zip .)
+          cp "$DMG" ./Trivor-universal.dmg
+          ls -lh ./Trivor-universal.dmg
+          echo "path=Trivor-universal.dmg" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           name: Trivor ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-          files: |
-            release-artifacts/*
-            Trivor-macos-universal.zip
+          files: ${{ steps.dmg.outputs.path }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name, '-') }}
