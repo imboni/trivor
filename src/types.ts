@@ -12,6 +12,10 @@ export interface UiBundle {
   search_placeholder: string;
   sidebar_models: string;
   sidebar_empty: string;
+  remove_model: string;
+  clear_library: string;
+  clear_library_confirm: string;
+  cancel: string;
   inspector_title: string;
   viewport_hints: string;
   empty_hint: string;
@@ -27,6 +31,7 @@ export interface UiBundle {
   loading_reading: string;
   loading_rendering: string;
   error_folder_empty: string;
+  library_limit: string;
   error_unknown_file_type: string;
   error_unsupported_ext: string;
   error_gltf_sidecar_hint: string;
@@ -34,6 +39,15 @@ export interface UiBundle {
   tool_zoom_in: string;
   tool_zoom_out: string;
   tool_reset_view: string;
+  tool_fit_view: string;
+  tool_cinema: string;
+  tool_exit_cinema: string;
+  collapse_panel: string;
+  expand_panel: string;
+  toggle_library: string;
+  tool_pause_rotate: string;
+  tool_resume_rotate: string;
+  expand_inspector: string;
   metric_axis_w: string;
   metric_axis_h: string;
   metric_axis_d: string;

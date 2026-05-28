@@ -20,6 +20,17 @@ export function formatModelCount(template: string, count: number, locale: string
   return template.replace("{n}", formatCount(count, locale));
 }
 
+export function formatLibraryLimit(
+  template: string,
+  max: number,
+  skipped: number,
+  locale: string,
+): string {
+  return template
+    .replace("{max}", formatCount(max, locale))
+    .replace("{n}", formatCount(skipped, locale));
+}
+
 export function formatModelFormat(format: string, ui: Pick<UiBundle, "format_gltf" | "format_glb">): string {
   switch (format.toLowerCase()) {
     case "gltf":

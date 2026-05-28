@@ -465,6 +465,19 @@ fn push_mesh_primitives(
     Ok(())
 }
 
+fn texture_image_for_view<'a>(
+    document: &'a Document,
+    texture: gltf::Texture<'a>,
+) -> Option<gltf::Image<'a>> {
+    if let Some(image) = texture.source() {
+        return Some(image);
+    }
+    let ext = texture.extensions()?;
+    let webp = ext.get("EXT_texture_webp")?;
+    let idx = webp.get("source")?.as_u64()? as usize;
+    document.images().nth(idx)
+}
+
 fn resolve_texture(
     document: &Document,
     import_images: &[gltf::image::Data],
@@ -474,7 +487,7 @@ fn resolve_texture(
     cache: &mut HashMap<usize, usize>,
     textures: &mut Vec<TextureImage>,
 ) -> Option<usize> {
-    let image = texture.source();
+    let image = texture_image_for_view(document, texture)?;
     let cache_key = image.index();
 
     if let Some(&idx) = cache.get(&cache_key) {

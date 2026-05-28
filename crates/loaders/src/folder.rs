@@ -40,10 +40,8 @@ fn scan_dir(dir: &Path, depth: u8, out: &mut Vec<ModelListEntry>) {
     let Ok(read_dir) = std::fs::read_dir(dir) else {
         return;
     };
-    let mut entries: Vec<_> = read_dir.flatten().collect();
-    entries.sort_by_key(|e| e.file_name());
 
-    for entry in entries {
+    for entry in read_dir.flatten() {
         let path = entry.path();
         if path.is_dir() {
             scan_dir(&path, depth + 1, out);
@@ -63,6 +61,5 @@ pub fn list_models_in_folder(dir: &Path) -> Result<Vec<ModelListEntry>, LoadErro
     }
     let mut items = Vec::new();
     scan_dir(dir, 0, &mut items);
-    items.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
     Ok(items)
 }
