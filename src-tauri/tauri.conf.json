@@ -47,7 +47,8 @@
     "longDescription": "Trivor (极视) is a fast, native 3D model viewer for Mac. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer.",
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "hardenedRuntime": true
+      "hardenedRuntime": false,
+      "signingIdentity": "-"
     }
   }
 }

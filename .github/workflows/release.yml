@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build (e.g. v0.0.1)"
+        required: true
+        default: "v0.0.1"
 
 permissions:
   contents: write
@@ -14,10 +19,12 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -27,32 +34,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Empty APPLE_SIGNING_IDENTITY makes codesign fail; use ad-hoc "-" when no secret.
-      - name: Configure code signing
-        run: |
-          if [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ]; then
-            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
-          else
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build universal app and DMG
-        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Build universal app
+        env:
+          # Ad-hoc sign (no Apple Developer cert required). Override via repo secret for notarized builds.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 
       - name: Package release artifacts
         run: |
+          set -euo pipefail
           BUNDLE="target/universal-apple-darwin/release/bundle/macos"
+          if [ ! -d "$BUNDLE" ]; then
+            BUNDLE="target/release/bundle/macos"
+          fi
+          ls -la "$BUNDLE"
           mkdir -p release-artifacts
-          cp -R "$BUNDLE"/*.app release-artifacts/ 2>/dev/null || cp -R target/release/bundle/macos/*.app release-artifacts/
-          cp "$BUNDLE"/*.dmg release-artifacts/ 2>/dev/null || cp target/release/bundle/macos/*.dmg release-artifacts/ || true
-          cd release-artifacts && zip -r ../Trivor-macos-universal.zip . && cd ..
+          cp -R "$BUNDLE"/*.app release-artifacts/
+          if ls "$BUNDLE"/*.dmg 1>/dev/null 2>&1; then
+            cp "$BUNDLE"/*.dmg release-artifacts/
+          fi
+          (cd release-artifacts && zip -r ../Trivor-macos-universal.zip .)
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          name: Trivor ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           files: |
             release-artifacts/*
             Trivor-macos-universal.zip
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name, '-') }}
+          make_latest: true
+          overwrite_files: true
