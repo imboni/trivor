@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Trivor",
+  "version": "0.0.1",
+  "identifier": "com.imboni.trivor",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Trivor",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "decorations": true,
+        "transparent": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' ipc: http://ipc.localhost asset: https://asset.localhost blob: data:; img-src 'self' asset: https://asset.localhost http://asset.localhost blob: data:; media-src 'self' asset: https://asset.localhost http://asset.localhost blob: data:; connect-src 'self' asset: https://asset.localhost http://asset.localhost ipc: http://ipc.localhost https://www.gstatic.com blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com blob:; worker-src 'self' blob:;",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "GraphicsAndDesign",
+    "copyright": "Copyright © 2026 imboni and contributors.",
+    "shortDescription": "Native glTF / GLB viewer for macOS.",
+    "longDescription": "Trivor (极视) is a fast, native 3D model viewer for Mac. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer.",
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true
+    }
+  }
+}

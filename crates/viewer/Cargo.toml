@@ -1,0 +1,19 @@
+[package]
+name = "trivor-viewer"
+description = "Google model-viewer WebView viewport for Trivor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tracing.workspace = true
+wry = "0.52"
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-web-kit = "0.3"

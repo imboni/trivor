@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/core",
+    "crates/i18n",
+    "crates/loaders",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/imboni/trivor"
+homepage = "https://github.com/imboni/trivor"
+rust-version = "1.77"
+
+[workspace.dependencies]
+glam = { version = "0.29", features = ["serde"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+slint = { version = "1.16", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-femtovg",
+    "compat-1-2",
+    "unstable-winit-030",
+] }
+slint-build = "1.16"
+rfd = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+trivor-core = { path = "crates/core" }
+trivor-i18n = { path = "crates/i18n" }
+trivor-loaders = { path = "crates/loaders" }
+

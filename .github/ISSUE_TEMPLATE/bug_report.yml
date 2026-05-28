@@ -1,0 +1,38 @@
+name: Bug report
+description: Report something that is broken
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      placeholder: Describe the bug clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See error
+  - type: input
+    id: version
+    attributes:
+      label: Trivor version
+      placeholder: e.g. 0.0.1
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: e.g. 14.5 (Apple Silicon)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Terminal output from `npm run tauri dev` or screenshots if helpful.

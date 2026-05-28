@@ -1,0 +1,22 @@
+[package]
+name = "trivor-ui"
+description = "Slint UI for Trivor (极视)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+slint.workspace = true
+image.workspace = true
+rfd.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+trivor-core.workspace = true
+trivor-i18n.workspace = true
+trivor-loaders.workspace = true
+trivor-macos.workspace = true
+trivor-viewer = { path = "../viewer" }
+
+[build-dependencies]
+slint-build.workspace = true

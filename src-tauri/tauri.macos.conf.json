@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "category": "GraphicsAndDesign",
+    "copyright": "Copyright © 2026 imboni and contributors.",
+    "shortDescription": "Native glTF / GLB viewer for macOS.",
+    "longDescription": "Trivor (极视) is a fast, native 3D model viewer for Mac. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer built for Apple Silicon and Intel Macs.",
+    "fileAssociations": [
+      {
+        "ext": ["gltf"],
+        "name": "glTF Model",
+        "description": "GL Transmission Format",
+        "mimeType": "model/gltf+json",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["glb"],
+        "name": "Binary glTF",
+        "description": "GL Transmission Format (binary)",
+        "mimeType": "model/gltf-binary",
+        "role": "Viewer"
+      }
+    ],
+    "macOS": {
+      "entitlements": "./Entitlements.plist",
+      "infoPlist": "./Info.plist",
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true,
+      "files": {
+        "PrivacyInfo.xcprivacy": "./PrivacyInfo.xcprivacy"
+      },
+      "dmg": {
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 }
+      }
+    }
+  }
+}

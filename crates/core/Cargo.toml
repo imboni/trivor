@@ -1,0 +1,12 @@
+[package]
+name = "trivor-core"
+description = "Core types and state for Trivor (极视)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+glam = { workspace = true, features = ["serde"] }
+serde.workspace = true
+thiserror.workspace = true

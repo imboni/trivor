@@ -1,0 +1,574 @@
+//! Internationalization for Trivor (极视).
+
+use serde::Serialize;
+use trivor_core::{Locale, LocalePreference, Theme, ThemePreference};
+
+pub struct I18n {
+    locale: Locale,
+}
+
+impl I18n {
+    pub fn new(preference: LocalePreference) -> Self {
+        Self {
+            locale: resolve_locale(preference),
+        }
+    }
+
+    pub fn with_locale(locale: Locale) -> Self {
+        Self { locale }
+    }
+
+    pub fn locale(&self) -> Locale {
+        self.locale
+    }
+
+    pub fn set_preference(&mut self, preference: LocalePreference) {
+        self.locale = resolve_locale(preference);
+    }
+
+    pub fn set_locale(&mut self, locale: Locale) {
+        self.locale = locale;
+    }
+
+    pub fn t(&self, key: MessageKey) -> &'static str {
+        match (self.locale, key) {
+            // Brand
+            (_, MessageKey::AppName) if self.locale == Locale::ZhHans => "极视",
+            (_, MessageKey::AppName) => "Trivor",
+            (Locale::ZhHans, MessageKey::AppTagline) => "所见即三维。",
+            (_, MessageKey::AppTagline) => "See every dimension.",
+            (Locale::ZhHans, MessageKey::AboutDescription) => {
+                "专为 Mac 打造的高性能三维模型查看器。"
+            }
+            (_, MessageKey::AboutDescription) => "A fast, native 3D model viewer for Mac.",
+
+            // Shell
+            (Locale::ZhHans, MessageKey::FileDialogFilter) => "glTF / GLB",
+            (_, MessageKey::FileDialogFilter) => "glTF / GLB",
+            (Locale::ZhHans, MessageKey::OpenFile) => "打开…",
+            (_, MessageKey::OpenFile) => "Open…",
+            (Locale::ZhHans, MessageKey::OpenFolder) => "文件夹…",
+            (_, MessageKey::OpenFolder) => "Folder…",
+            (Locale::ZhHans, MessageKey::Settings) => "设置",
+            (_, MessageKey::Settings) => "Settings",
+            (Locale::ZhHans, MessageKey::MenuFile) => "文件",
+            (_, MessageKey::MenuFile) => "File",
+            (Locale::ZhHans, MessageKey::MenuView) => "视图",
+            (_, MessageKey::MenuView) => "View",
+            (Locale::ZhHans, MessageKey::MenuOpen) => "打开…",
+            (_, MessageKey::MenuOpen) => "Open…",
+            (Locale::ZhHans, MessageKey::MenuOpenFolder) => "打开文件夹…",
+            (_, MessageKey::MenuOpenFolder) => "Open Folder…",
+            (Locale::ZhHans, MessageKey::MenuFit) => "适应窗口",
+            (_, MessageKey::MenuFit) => "Fit to View",
+            (Locale::ZhHans, MessageKey::MenuQuit) => "退出 Trivor",
+            (_, MessageKey::MenuQuit) => "Quit Trivor",
+            (Locale::ZhHans, MessageKey::SearchPlaceholder) => "搜索模型…",
+            (_, MessageKey::SearchPlaceholder) => "Search models…",
+            (Locale::ZhHans, MessageKey::SidebarModels) => "模型库",
+            (_, MessageKey::SidebarModels) => "Library",
+            (Locale::ZhHans, MessageKey::SidebarEmpty) => "打开或导入文件夹，模型会显示在这里。",
+            (_, MessageKey::SidebarEmpty) => "Open a file or folder to build your library.",
+            (Locale::ZhHans, MessageKey::InspectorTitle) => "属性",
+            (_, MessageKey::InspectorTitle) => "Inspector",
+            (Locale::ZhHans, MessageKey::ViewportHints) => {
+                "拖拽旋转 · 滚轮缩放 · 双击适应"
+            }
+            (_, MessageKey::ViewportHints) => "Drag to orbit · Scroll to zoom · Double-click to fit",
+            (Locale::ZhHans, MessageKey::EmptyHint) => "从左侧模型库开始",
+            (_, MessageKey::EmptyHint) => "Start from the library on the left",
+            (Locale::ZhHans, MessageKey::ErrorTitle) => "无法加载",
+            (_, MessageKey::ErrorTitle) => "Couldn't load",
+            (Locale::ZhHans, MessageKey::ModelCount) => "{n} 个模型",
+            (_, MessageKey::ModelCount) => "{n} models",
+            (Locale::ZhHans, MessageKey::PanelMaterials) => "材质",
+            (_, MessageKey::PanelMaterials) => "Materials",
+            (Locale::ZhHans, MessageKey::PanelModel) => "模型",
+            (_, MessageKey::PanelModel) => "Model",
+            (Locale::ZhHans, MessageKey::PanelDimensions) => "尺寸",
+            (_, MessageKey::PanelDimensions) => "Dimensions",
+            (Locale::ZhHans, MessageKey::InspectorPlaceholder) => "打开模型后，几何与材质数据会显示在这里。",
+            (_, MessageKey::InspectorPlaceholder) => "Geometry and materials appear here once a model is open.",
+            (Locale::ZhHans, MessageKey::Viewport) => "视口",
+            (_, MessageKey::Viewport) => "Viewport",
+
+            // Empty / loading
+            (Locale::ZhHans, MessageKey::EmptyTitle) => "空阔如纸，等一笔山河。",
+            (_, MessageKey::EmptyTitle) => "Wide as blank paper—waiting for a stroke of mountains.",
+            (Locale::ZhHans, MessageKey::EmptySubtitle) => "",
+            (_, MessageKey::EmptySubtitle) => "",
+            (Locale::ZhHans, MessageKey::Loading) => "加载中…",
+            (_, MessageKey::Loading) => "Loading…",
+            (Locale::ZhHans, MessageKey::LoadingReading) => "正在读取",
+            (_, MessageKey::LoadingReading) => "Reading",
+            (Locale::ZhHans, MessageKey::LoadingRendering) => "正在渲染",
+            (_, MessageKey::LoadingRendering) => "Rendering",
+            (Locale::ZhHans, MessageKey::ErrorFolderEmpty) => {
+                "该文件夹内没有 glTF / GLB 模型"
+            }
+            (_, MessageKey::ErrorFolderEmpty) => "No glTF / GLB models in this folder",
+            (Locale::ZhHans, MessageKey::ErrorUnknownFileType) => {
+                "无法识别文件类型，请使用 .gltf 或 .glb"
+            }
+            (_, MessageKey::ErrorUnknownFileType) => "Unknown file type — use .gltf or .glb",
+            (Locale::ZhHans, MessageKey::ErrorUnsupportedExt) => {
+                "暂不支持 .{ext}。当前支持：.gltf（JSON + 外部 bin/贴图）、.glb（单文件）"
+            }
+            (_, MessageKey::ErrorUnsupportedExt) => {
+                "Unsupported .{ext}. Supported: .gltf (JSON + sidecar files) and .glb (single file)"
+            }
+            (Locale::ZhHans, MessageKey::ErrorGltfSidecarHint) => {
+                "提示：.gltf 需与 .bin、贴图等文件放在同一文件夹。"
+            }
+            (_, MessageKey::ErrorGltfSidecarHint) => {
+                "Tip: keep .gltf together with its .bin and texture files in one folder."
+            }
+            (Locale::ZhHans, MessageKey::ErrorViewerLoad) => "模型加载失败",
+            (_, MessageKey::ErrorViewerLoad) => "Failed to load model",
+            (Locale::ZhHans, MessageKey::ToolZoomIn) => "放大 (+)",
+            (_, MessageKey::ToolZoomIn) => "Zoom in (+)",
+            (Locale::ZhHans, MessageKey::ToolZoomOut) => "缩小 (−)",
+            (_, MessageKey::ToolZoomOut) => "Zoom out (−)",
+            (Locale::ZhHans, MessageKey::ToolResetView) => "重置视角 (R)",
+            (_, MessageKey::ToolResetView) => "Reset view (R)",
+            (Locale::ZhHans, MessageKey::MetricAxisW) => "宽",
+            (_, MessageKey::MetricAxisW) => "W",
+            (Locale::ZhHans, MessageKey::MetricAxisH) => "高",
+            (_, MessageKey::MetricAxisH) => "H",
+            (Locale::ZhHans, MessageKey::MetricAxisD) => "深",
+            (_, MessageKey::MetricAxisD) => "D",
+            (Locale::ZhHans, MessageKey::CloseSettings) => "关闭",
+            (_, MessageKey::CloseSettings) => "Close",
+            (Locale::ZhHans, MessageKey::ViewportPlaceholder) => "3D 视口（M1）",
+            (_, MessageKey::ViewportPlaceholder) => "3D viewport (M1)",
+
+            // Metrics
+            (Locale::ZhHans, MessageKey::MetricFormat) => "格式",
+            (_, MessageKey::MetricFormat) => "Format",
+            (Locale::ZhHans, MessageKey::MetricSize) => "大小",
+            (_, MessageKey::MetricSize) => "Size",
+            (Locale::ZhHans, MessageKey::MetricMeshes) => "网格",
+            (_, MessageKey::MetricMeshes) => "Meshes",
+            (Locale::ZhHans, MessageKey::MetricMaterials) => "材质",
+            (_, MessageKey::MetricMaterials) => "Materials",
+            (Locale::ZhHans, MessageKey::MetricVertices) => "顶点",
+            (_, MessageKey::MetricVertices) => "Vertices",
+            (Locale::ZhHans, MessageKey::MetricTriangles) => "三角面",
+            (_, MessageKey::MetricTriangles) => "Triangles",
+            (Locale::ZhHans, MessageKey::MetricNone) => "—",
+            (_, MessageKey::MetricNone) => "—",
+            (Locale::ZhHans, MessageKey::FormatGltf) => "glTF",
+            (_, MessageKey::FormatGltf) => "glTF",
+            (Locale::ZhHans, MessageKey::FormatGlb) => "GLB",
+            (_, MessageKey::FormatGlb) => "GLB",
+            (Locale::ZhHans, MessageKey::UnitMeter) => "米",
+            (_, MessageKey::UnitMeter) => "m",
+            (Locale::ZhHans, MessageKey::UnitBytesB) => "B",
+            (_, MessageKey::UnitBytesB) => "B",
+            (Locale::ZhHans, MessageKey::UnitBytesKb) => "KB",
+            (_, MessageKey::UnitBytesKb) => "KB",
+            (Locale::ZhHans, MessageKey::UnitBytesMb) => "MB",
+            (_, MessageKey::UnitBytesMb) => "MB",
+
+            // Settings
+            (Locale::ZhHans, MessageKey::Language) => "语言",
+            (_, MessageKey::Language) => "Language",
+            (Locale::ZhHans, MessageKey::LangEn) => "English",
+            (_, MessageKey::LangEn) => "English",
+            (Locale::ZhHans, MessageKey::LangZh) => "简体中文",
+            (_, MessageKey::LangZh) => "简体中文",
+            (Locale::ZhHans, MessageKey::LangSystem) => "跟随系统",
+            (_, MessageKey::LangSystem) => "System",
+            (Locale::ZhHans, MessageKey::Appearance) => "外观",
+            (_, MessageKey::Appearance) => "Appearance",
+            (Locale::ZhHans, MessageKey::ThemeDark) => "深色",
+            (_, MessageKey::ThemeDark) => "Dark",
+            (Locale::ZhHans, MessageKey::ThemeLight) => "浅色",
+            (_, MessageKey::ThemeLight) => "Light",
+            (Locale::ZhHans, MessageKey::ThemeSystem) => "跟随系统",
+            (_, MessageKey::ThemeSystem) => "System",
+        }
+    }
+}
+
+pub fn resolve_locale(preference: LocalePreference) -> Locale {
+    match preference {
+        LocalePreference::En => Locale::En,
+        LocalePreference::ZhHans => Locale::ZhHans,
+        LocalePreference::System => sys_locale::get_locale()
+            .map(|l| {
+                if l.starts_with("zh") {
+                    Locale::ZhHans
+                } else {
+                    Locale::En
+                }
+            })
+            .unwrap_or(Locale::En),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MessageKey {
+    AppName,
+    AppTagline,
+    AboutDescription,
+    FileDialogFilter,
+    OpenFile,
+    OpenFolder,
+    MenuFile,
+    MenuView,
+    MenuOpen,
+    MenuOpenFolder,
+    MenuFit,
+    MenuQuit,
+    Settings,
+    SearchPlaceholder,
+    SidebarModels,
+    SidebarEmpty,
+    InspectorTitle,
+    ViewportHints,
+    EmptyHint,
+    ErrorTitle,
+    ModelCount,
+    PanelMaterials,
+    PanelModel,
+    PanelDimensions,
+    InspectorPlaceholder,
+    Viewport,
+    EmptyTitle,
+    EmptySubtitle,
+    Loading,
+    LoadingReading,
+    LoadingRendering,
+    ErrorFolderEmpty,
+    ErrorUnknownFileType,
+    ErrorUnsupportedExt,
+    ErrorGltfSidecarHint,
+    ErrorViewerLoad,
+    ToolZoomIn,
+    ToolZoomOut,
+    ToolResetView,
+    MetricAxisW,
+    MetricAxisH,
+    MetricAxisD,
+    CloseSettings,
+    ViewportPlaceholder,
+    MetricFormat,
+    MetricSize,
+    MetricMeshes,
+    MetricMaterials,
+    MetricVertices,
+    MetricTriangles,
+    MetricNone,
+    FormatGltf,
+    FormatGlb,
+    UnitMeter,
+    UnitBytesB,
+    UnitBytesKb,
+    UnitBytesMb,
+    Language,
+    LangEn,
+    LangZh,
+    LangSystem,
+    Appearance,
+    ThemeDark,
+    ThemeLight,
+    ThemeSystem,
+}
+
+/// Serializable UI copy for the web shell.
+#[derive(Debug, Clone, Serialize)]
+pub struct UiBundle {
+    /// Resolved UI language: `en` or `zh-Hans`.
+    pub locale: &'static str,
+    /// User preference: `en`, `zh-Hans`, or `system`.
+    pub locale_pref: &'static str,
+    /// Resolved theme: `dark` or `light`.
+    pub theme: &'static str,
+    /// User preference: `dark`, `light`, or `system`.
+    pub theme_pref: &'static str,
+    pub window_title: String,
+    pub app_name: String,
+    pub tagline: String,
+    pub open_file: String,
+    pub open_folder: String,
+    pub settings: String,
+    pub search_placeholder: String,
+    pub sidebar_models: String,
+    pub sidebar_empty: String,
+    pub inspector_title: String,
+    pub viewport_hints: String,
+    pub empty_hint: String,
+    pub error_title: String,
+    pub model_count: String,
+    pub panel_materials: String,
+    pub panel_model: String,
+    pub panel_dimensions: String,
+    pub inspector_placeholder: String,
+    pub empty_title: String,
+    pub empty_subtitle: String,
+    pub loading: String,
+    pub loading_reading: String,
+    pub loading_rendering: String,
+    pub error_folder_empty: String,
+    pub error_unknown_file_type: String,
+    pub error_unsupported_ext: String,
+    pub error_gltf_sidecar_hint: String,
+    pub error_viewer_load: String,
+    pub tool_zoom_in: String,
+    pub tool_zoom_out: String,
+    pub tool_reset_view: String,
+    pub metric_axis_w: String,
+    pub metric_axis_h: String,
+    pub metric_axis_d: String,
+    pub close_settings: String,
+    pub file_dialog_filter: String,
+    pub metric_format: String,
+    pub metric_size: String,
+    pub metric_meshes: String,
+    pub metric_materials: String,
+    pub metric_vertices: String,
+    pub metric_triangles: String,
+    pub metric_none: String,
+    pub format_gltf: String,
+    pub format_glb: String,
+    pub unit_meter: String,
+    pub unit_bytes_b: String,
+    pub unit_bytes_kb: String,
+    pub unit_bytes_mb: String,
+    pub language: String,
+    pub lang_en: String,
+    pub lang_zh: String,
+    pub lang_system: String,
+    pub appearance: String,
+    pub theme_dark: String,
+    pub theme_light: String,
+    pub theme_system: String,
+}
+
+impl UiBundle {
+    pub fn from_prefs(
+        i18n: &I18n,
+        locale_pref: LocalePreference,
+        theme_pref: ThemePreference,
+        system_dark: bool,
+    ) -> Self {
+        let s = UiStrings::from_i18n(i18n);
+        let locale = match i18n.locale() {
+            Locale::ZhHans => "zh-Hans",
+            Locale::En => "en",
+        };
+        let locale_pref = match locale_pref {
+            LocalePreference::En => "en",
+            LocalePreference::ZhHans => "zh-Hans",
+            LocalePreference::System => "system",
+        };
+        let theme = match theme_pref.resolve(system_dark) {
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+        };
+        let theme_pref = match theme_pref {
+            ThemePreference::Dark => "dark",
+            ThemePreference::Light => "light",
+            ThemePreference::System => "system",
+        };
+        Self {
+            locale,
+            locale_pref,
+            theme,
+            theme_pref,
+            window_title: s.window_title,
+            app_name: s.app_name,
+            tagline: s.tagline,
+            open_file: s.open_file,
+            open_folder: s.open_folder,
+            settings: s.settings,
+            search_placeholder: s.search_placeholder,
+            sidebar_models: s.sidebar_models,
+            sidebar_empty: s.sidebar_empty,
+            inspector_title: s.inspector_title,
+            viewport_hints: s.viewport_hints,
+            empty_hint: s.empty_hint,
+            error_title: s.error_title,
+            model_count: s.model_count,
+            panel_materials: s.panel_materials,
+            panel_model: s.panel_model,
+            panel_dimensions: s.panel_dimensions,
+            inspector_placeholder: s.inspector_placeholder,
+            empty_title: s.empty_title,
+            empty_subtitle: s.empty_subtitle,
+            loading: s.loading,
+            loading_reading: s.loading_reading,
+            loading_rendering: s.loading_rendering,
+            error_folder_empty: s.error_folder_empty,
+            error_unknown_file_type: s.error_unknown_file_type,
+            error_unsupported_ext: s.error_unsupported_ext,
+            error_gltf_sidecar_hint: s.error_gltf_sidecar_hint,
+            error_viewer_load: s.error_viewer_load,
+            tool_zoom_in: s.tool_zoom_in,
+            tool_zoom_out: s.tool_zoom_out,
+            tool_reset_view: s.tool_reset_view,
+            metric_axis_w: s.metric_axis_w,
+            metric_axis_h: s.metric_axis_h,
+            metric_axis_d: s.metric_axis_d,
+            close_settings: s.close_settings,
+            file_dialog_filter: s.file_dialog_filter,
+            metric_format: s.metric_format,
+            metric_size: s.metric_size,
+            metric_meshes: s.metric_meshes,
+            metric_materials: s.metric_materials,
+            metric_vertices: s.metric_vertices,
+            metric_triangles: s.metric_triangles,
+            metric_none: s.metric_none,
+            format_gltf: s.format_gltf,
+            format_glb: s.format_glb,
+            unit_meter: s.unit_meter,
+            unit_bytes_b: s.unit_bytes_b,
+            unit_bytes_kb: s.unit_bytes_kb,
+            unit_bytes_mb: s.unit_bytes_mb,
+            language: s.language,
+            lang_en: s.lang_en,
+            lang_zh: s.lang_zh,
+            lang_system: s.lang_system,
+            appearance: s.appearance,
+            theme_dark: s.theme_dark,
+            theme_light: s.theme_light,
+            theme_system: s.theme_system,
+        }
+    }
+
+    pub fn from_i18n_with_pref(i18n: &I18n, locale_pref: LocalePreference) -> Self {
+        Self::from_prefs(i18n, locale_pref, ThemePreference::System, true)
+    }
+}
+
+/// UI string bundle (legacy Slint).
+#[derive(Debug, Clone, Default)]
+pub struct UiStrings {
+    pub window_title: String,
+    pub app_name: String,
+    pub tagline: String,
+    pub open_file: String,
+    pub open_folder: String,
+    pub settings: String,
+    pub search_placeholder: String,
+    pub sidebar_models: String,
+    pub sidebar_empty: String,
+    pub inspector_title: String,
+    pub viewport_hints: String,
+    pub empty_hint: String,
+    pub error_title: String,
+    pub model_count: String,
+    pub panel_materials: String,
+    pub panel_model: String,
+    pub panel_dimensions: String,
+    pub inspector_placeholder: String,
+    pub viewport: String,
+    pub empty_title: String,
+    pub empty_subtitle: String,
+    pub loading: String,
+    pub loading_reading: String,
+    pub loading_rendering: String,
+    pub error_folder_empty: String,
+    pub error_unknown_file_type: String,
+    pub error_unsupported_ext: String,
+    pub error_gltf_sidecar_hint: String,
+    pub error_viewer_load: String,
+    pub tool_zoom_in: String,
+    pub tool_zoom_out: String,
+    pub tool_reset_view: String,
+    pub metric_axis_w: String,
+    pub metric_axis_h: String,
+    pub metric_axis_d: String,
+    pub close_settings: String,
+    pub file_dialog_filter: String,
+    pub viewport_placeholder: String,
+    pub metric_format: String,
+    pub metric_size: String,
+    pub metric_meshes: String,
+    pub metric_materials: String,
+    pub metric_vertices: String,
+    pub metric_triangles: String,
+    pub metric_none: String,
+    pub format_gltf: String,
+    pub format_glb: String,
+    pub unit_meter: String,
+    pub unit_bytes_b: String,
+    pub unit_bytes_kb: String,
+    pub unit_bytes_mb: String,
+    pub language: String,
+    pub lang_en: String,
+    pub lang_zh: String,
+    pub lang_system: String,
+    pub appearance: String,
+    pub theme_dark: String,
+    pub theme_light: String,
+    pub theme_system: String,
+}
+
+impl UiStrings {
+    pub fn from_i18n(i18n: &I18n) -> Self {
+        let s = |k: MessageKey| i18n.t(k).to_string();
+        Self {
+            window_title: format!("{} — {}", s(MessageKey::AppName), s(MessageKey::AppTagline)),
+            app_name: s(MessageKey::AppName),
+            tagline: s(MessageKey::AppTagline),
+            open_file: s(MessageKey::OpenFile),
+            open_folder: s(MessageKey::OpenFolder),
+            settings: s(MessageKey::Settings),
+            search_placeholder: s(MessageKey::SearchPlaceholder),
+            sidebar_models: s(MessageKey::SidebarModels),
+            sidebar_empty: s(MessageKey::SidebarEmpty),
+            inspector_title: s(MessageKey::InspectorTitle),
+            viewport_hints: s(MessageKey::ViewportHints),
+            empty_hint: s(MessageKey::EmptyHint),
+            error_title: s(MessageKey::ErrorTitle),
+            model_count: s(MessageKey::ModelCount),
+            panel_materials: s(MessageKey::PanelMaterials),
+            panel_model: s(MessageKey::PanelModel),
+            panel_dimensions: s(MessageKey::PanelDimensions),
+            inspector_placeholder: s(MessageKey::InspectorPlaceholder),
+            viewport: s(MessageKey::Viewport),
+            empty_title: s(MessageKey::EmptyTitle),
+            empty_subtitle: s(MessageKey::EmptySubtitle),
+            loading: s(MessageKey::Loading),
+            loading_reading: s(MessageKey::LoadingReading),
+            loading_rendering: s(MessageKey::LoadingRendering),
+            error_folder_empty: s(MessageKey::ErrorFolderEmpty),
+            error_unknown_file_type: s(MessageKey::ErrorUnknownFileType),
+            error_unsupported_ext: s(MessageKey::ErrorUnsupportedExt),
+            error_gltf_sidecar_hint: s(MessageKey::ErrorGltfSidecarHint),
+            error_viewer_load: s(MessageKey::ErrorViewerLoad),
+            tool_zoom_in: s(MessageKey::ToolZoomIn),
+            tool_zoom_out: s(MessageKey::ToolZoomOut),
+            tool_reset_view: s(MessageKey::ToolResetView),
+            metric_axis_w: s(MessageKey::MetricAxisW),
+            metric_axis_h: s(MessageKey::MetricAxisH),
+            metric_axis_d: s(MessageKey::MetricAxisD),
+            close_settings: s(MessageKey::CloseSettings),
+            file_dialog_filter: s(MessageKey::FileDialogFilter),
+            viewport_placeholder: s(MessageKey::ViewportPlaceholder),
+            metric_format: s(MessageKey::MetricFormat),
+            metric_size: s(MessageKey::MetricSize),
+            metric_meshes: s(MessageKey::MetricMeshes),
+            metric_materials: s(MessageKey::MetricMaterials),
+            metric_vertices: s(MessageKey::MetricVertices),
+            metric_triangles: s(MessageKey::MetricTriangles),
+            metric_none: s(MessageKey::MetricNone),
+            format_gltf: s(MessageKey::FormatGltf),
+            format_glb: s(MessageKey::FormatGlb),
+            unit_meter: s(MessageKey::UnitMeter),
+            unit_bytes_b: s(MessageKey::UnitBytesB),
+            unit_bytes_kb: s(MessageKey::UnitBytesKb),
+            unit_bytes_mb: s(MessageKey::UnitBytesMb),
+            language: s(MessageKey::Language),
+            lang_en: s(MessageKey::LangEn),
+            lang_zh: s(MessageKey::LangZh),
+            lang_system: s(MessageKey::LangSystem),
+            appearance: s(MessageKey::Appearance),
+            theme_dark: s(MessageKey::ThemeDark),
+            theme_light: s(MessageKey::ThemeLight),
+            theme_system: s(MessageKey::ThemeSystem),
+        }
+    }
+}

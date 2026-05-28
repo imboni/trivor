@@ -1,0 +1,15 @@
+/node_modules/
+/dist/
+/target/
+**/target/
+.DS_Store
+*.app
+*.dmg
+.idea/
+.vscode/
+*.slint-workspace
+.env
+.env.*
+!.env.example
+src-tauri/Entitlements.mas.plist
+*.provisionprofile
