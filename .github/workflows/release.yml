@@ -44,6 +44,9 @@ jobs:
         id: dmg
         run: |
           set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
+          VERSION="${TAG#v}"
+          OUT="Trivor-${VERSION}-macOS.dmg"
           ROOT="target/universal-apple-darwin/release/bundle"
           if [ ! -d "$ROOT" ]; then
             ROOT="target/release/bundle"
@@ -54,9 +57,9 @@ jobs:
             find "$ROOT" -type f 2>/dev/null || true
             exit 1
           fi
-          cp "$DMG" ./Trivor-universal.dmg
-          ls -lh ./Trivor-universal.dmg
-          echo "path=Trivor-universal.dmg" >> "$GITHUB_OUTPUT"
+          cp "$DMG" "./${OUT}"
+          ls -lh "./${OUT}"
+          echo "path=${OUT}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
