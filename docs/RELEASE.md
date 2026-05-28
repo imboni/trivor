@@ -13,7 +13,9 @@ git tag -a v0.0.1 -m "v0.0.1"
 git push origin v0.0.1
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds on `v*` tags and attaches `.app` / `.dmg` artifacts to the release when possible.
+GitHub Actions (`.github/workflows/release.yml`) builds on `v*` tags and attaches `.app` / `.dmg` artifacts to the release.
+
+CI uses **ad-hoc signing** (`APPLE_SIGNING_IDENTITY=-`) unless you set the `APPLE_SIGNING_IDENTITY` repository secret to a Developer ID certificate name. Ad-hoc builds run on macOS but are not notarized; users may need to right-click → Open the first time.
 
 ## Local universal build
 

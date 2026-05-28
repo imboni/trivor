@@ -26,9 +26,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Empty APPLE_SIGNING_IDENTITY makes codesign fail; use ad-hoc "-" when no secret.
+      - name: Configure code signing
+        run: |
+          if [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ]; then
+            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
+          else
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          fi
+
       - name: Build universal app and DMG
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npm run tauri build -- --target universal-apple-darwin
 
       - name: Package release artifacts
