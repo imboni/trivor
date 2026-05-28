@@ -43,4 +43,4 @@ Entitlements for sandboxed builds: `src-tauri/Entitlements.plist` (not required 
 
 ## App Store
 
-This project targets **direct open-source distribution**, not the Mac App Store. MAS-specific files (`Entitlements.mas.plist.example`, `PrivacyInfo.xcprivacy`) are kept for optional use only.
+This project targets **direct open-source distribution**, not the Mac App Store. MAS-specific files (`Entitlements.mas.plist.example`, `PrivacyInfo.xcprivacy`) are kept in the repo but are **not** bundled by default (they break ad-hoc CI signing). To ship to the App Store, add `PrivacyInfo.xcprivacy` back under `bundle.macOS.files` in `tauri.macos.conf.json` and use a real `signingIdentity` with `hardenedRuntime: true`.

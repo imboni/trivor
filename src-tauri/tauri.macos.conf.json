@@ -25,10 +25,8 @@
       "entitlements": "./Entitlements.plist",
       "infoPlist": "./Info.plist",
       "minimumSystemVersion": "13.0",
-      "hardenedRuntime": true,
-      "files": {
-        "PrivacyInfo.xcprivacy": "./PrivacyInfo.xcprivacy"
-      },
+      "hardenedRuntime": false,
+      "signingIdentity": "-",
       "dmg": {
         "windowSize": { "width": 660, "height": 400 },
         "appPosition": { "x": 180, "y": 170 },
