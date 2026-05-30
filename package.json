@@ -18,6 +18,10 @@
     "icon": "tauri icon assets/logo-dark.png"
   },
   "dependencies": {
+    "@fontsource-variable/material-symbols-outlined": "^5.2.45",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/noto-serif": "^5.2.9",
     "@google/model-viewer": "^4.1.0",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2.5.4",

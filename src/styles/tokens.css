@@ -231,7 +231,7 @@ body {
 }
 
 .material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
+  font-family: "Material Symbols Outlined Variable";
   font-weight: normal;
   font-style: normal;
   font-size: 22px;
@@ -242,6 +242,8 @@ body {
   white-space: nowrap;
   word-wrap: normal;
   direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
   font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
   user-select: none;
 }

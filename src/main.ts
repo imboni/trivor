@@ -1,3 +1,4 @@
+import "./fonts";
 import { App } from "./app";
 
 /** WKWebView in Tauri sometimes ignores % height until innerHeight is applied. */
