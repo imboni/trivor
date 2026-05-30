@@ -9,61 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-05-28
 
-### English
+First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发行版。
 
-First public release for **macOS 13+**.
+**Open & library · 打开与模型库**
 
-**Open & library**
+- Open `.gltf` / `.glb` or folders from the app or Finder — 在应用内或访达打开 `.gltf` / `.glb` 或文件夹
+- Folder-based library with format badges; reveal in Finder; remove from list — 按目录管理模型库，显示格式标识，在访达中显示，从列表移除
+- Right-click to refresh a folder or the whole library — 右键刷新所在目录或整个模型库
 
-- Open `.gltf` / `.glb` files or folders from the app or Finder (**Open With**)
-- Folder-based library with format badges; reveal in Finder; remove from list
-- Right-click the library to refresh a folder or the whole library
+**Viewport · 视口**
 
-**Viewport**
+- Orbit, zoom, fit, and reset; double-click to fit — 旋转、缩放、适应与重置，双击适应
+- Cinema mode with auto-rotate — 清屏预览与自动旋转
+- Optional grid floor; model center and axis guides — 可选网格地面、模型中心与坐标轴
+- Axis orientation widget synced with the camera — 右下角轴向指示，与相机同步
 
-- Orbit, zoom, fit, and reset; double-click to fit
-- Cinema mode with auto-rotate
-- Optional grid floor; model center and axis guides
-- Axis orientation widget synced with the camera
+**Inspector & settings · 检查器与设置**
 
-**Inspector & settings**
+- Mesh stats, bounding dimensions, material swatches — 网格统计、包围尺寸、材质色块
+- English and 简体中文; dark, light, or system appearance — 英文与简体中文，深色 / 浅色 / 跟随系统
+- Customizable keyboard shortcuts — 可自定义快捷键
 
-- Mesh stats, bounding dimensions, material swatches
-- English and 简体中文; dark, light, or system appearance
-- Customizable keyboard shortcuts
+**Other · 其他**
 
-**Other**
-
-- Collapsible library and inspector panels
-- About dialog with update check
-
-### 简体中文
-
-面向 **macOS 13+** 的首个公开发行版。
-
-**打开与模型库**
-
-- 在应用内或访达（**打开方式**）打开 `.gltf` / `.glb` 或文件夹
-- 按目录管理模型库，显示格式标识；在访达中显示；从列表移除
-- 右键可刷新所在目录或整个模型库
-
-**视口**
-
-- 旋转、缩放、适应与重置；双击适应
-- 清屏预览（影院模式）与自动旋转
-- 可选网格地面；模型中心与坐标轴
-- 右下角轴向指示，与相机同步
-
-**检查器与设置**
-
-- 网格统计、包围尺寸、材质色块
-- 英文与简体中文；深色 / 浅色 / 跟随系统
-- 可自定义快捷键
-
-**其他**
-
-- 可折叠模型库与检查器面板
-- 关于对话框与更新检查
+- Collapsible library and inspector panels — 可折叠模型库与检查器面板
+- About dialog with update check — 关于对话框与更新检查
 
 ## [0.0.2] - 2026-05-28
 
