@@ -1,12 +1,15 @@
 mod chrome;
 mod commands;
 mod menu;
+mod open_external;
 
 use std::sync::Mutex;
 
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Manager, RunEvent};
 use trivor_core::{LocalePreference, ThemePreference};
 use trivor_loaders::set_viewer_cache_dir;
+
+use open_external::{enqueue_external_open, FrontendReady, PendingOpens};
 
 pub struct AppState {
     pub locale: LocalePreference,
@@ -32,6 +35,8 @@ pub fn run() {
             locale: LocalePreference::System,
             theme: ThemePreference::System,
         }))
+        .manage(PendingOpens(Mutex::new(Vec::new())))
+        .manage(FrontendReady(Mutex::new(false)))
         .invoke_handler(tauri::generate_handler![
             commands::get_ui_bundle,
             commands::set_locale,
@@ -45,6 +50,8 @@ pub fn run() {
             commands::reveal_in_finder,
             commands::get_app_info,
             commands::check_for_updates,
+            open_external::complete_startup,
+            open_external::path_kind,
         ])
         .setup(|app| {
             let handle = app.handle();
@@ -79,11 +86,7 @@ pub fn run() {
             if let RunEvent::Opened { urls } = event {
                 for url in urls {
                     if let Ok(path) = url.to_file_path() {
-                        let _ = app.emit_to(
-                            "main",
-                            "open-path",
-                            path.to_string_lossy().into_owned(),
-                        );
+                        enqueue_external_open(app, path);
                     }
                 }
             }

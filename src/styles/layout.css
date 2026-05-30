@@ -261,8 +261,16 @@
   border-radius: var(--radius-full);
 }
 
+.rail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
 .rail-settings {
-  margin-top: auto;
+  flex-shrink: 0;
 }
 
 .rail-icon-btn {
@@ -308,21 +316,61 @@
   font-size: 20px;
 }
 
+.rail-library-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  overflow: hidden;
+  transition: grid-template-rows var(--motion-slow) var(--ease);
+}
+
+.rail-library-slot:not(.is-visible) {
+  display: none;
+}
+
+.rail-library-slot.is-visible {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.rail-library-toggle {
+  min-height: 0;
+  height: 40px;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  scale: 0.88;
+  transition:
+    opacity var(--motion-slow) var(--ease),
+    visibility var(--motion-slow) var(--ease),
+    scale var(--motion-slow) var(--ease-spring),
+    color var(--motion-fast) var(--ease),
+    background var(--motion-fast) var(--ease);
+}
+
+.rail-library-slot.is-visible .rail-library-toggle {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  scale: 1;
+}
+
 /* —— Explorer drawer (model list) —— */
 
 .explorer-drawer {
   position: absolute;
   left: calc(var(--shell-pad) + 72px);
-  top: 50%;
-  transform: translateY(-50%);
+  top: var(--shell-pad);
+  bottom: var(--panel-bottom-bound);
   z-index: 45;
   width: var(--explorer-w);
-  max-height: var(--panel-max-h);
+  max-height: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
-  padding: 20px 16px 16px;
+  padding: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -330,7 +378,8 @@
   transition:
     opacity var(--motion-slow) var(--ease),
     visibility var(--motion-slow) var(--ease),
-    translate var(--motion-slow) var(--ease);
+    translate var(--motion-slow) var(--ease),
+    bottom var(--motion-slow) var(--ease);
 }
 
 .explorer-drawer.is-visible {
@@ -357,6 +406,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 20px 16px 0;
   margin-bottom: 12px;
   flex-shrink: 0;
   overflow: visible;
@@ -467,6 +517,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  padding: 0 16px 16px;
 }
 
 /* —— Inspector panel (right) —— */
@@ -474,15 +525,15 @@
 .inspector-panel {
   position: absolute;
   right: var(--shell-pad);
-  top: 50%;
-  transform: translateY(-50%);
+  top: var(--shell-pad);
+  bottom: var(--panel-bottom-bound);
   z-index: 50;
   width: var(--inspector-w);
-  max-height: var(--panel-max-h);
+  max-height: none;
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
-  padding: 24px 20px 24px 24px;
+  padding: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -490,7 +541,8 @@
   transition:
     opacity var(--motion-slow) var(--ease),
     visibility var(--motion-slow) var(--ease),
-    translate var(--motion-slow) var(--ease);
+    translate var(--motion-slow) var(--ease),
+    bottom var(--motion-slow) var(--ease);
 }
 
 .inspector-panel.is-visible {
@@ -508,6 +560,7 @@
 }
 
 .inspector-head {
+  padding: 24px 20px 0 24px;
   margin-bottom: 4px;
   flex-shrink: 0;
 }
@@ -548,9 +601,12 @@
 .inspector-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 0 20px 24px 24px;
 }
 
 .inspector-body.is-placeholder:empty {
@@ -707,32 +763,35 @@ html.is-cinema-cursor-hidden model-viewer {
 .panel-expand-tab {
   position: absolute;
   right: var(--shell-pad);
-  top: 50%;
+  top: var(--shell-pad);
+  bottom: var(--panel-bottom-bound);
   z-index: 46;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 56px;
+  margin: auto 0;
   padding: 0;
   border-radius: var(--radius-full);
   color: var(--text-subtle);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  translate: 8px -50%;
+  translate: 8px 0;
   transition:
     opacity var(--motion-slow) var(--ease),
     visibility var(--motion-slow) var(--ease),
     translate var(--motion-slow) var(--ease),
-    scale var(--motion-fast) var(--ease);
+    scale var(--motion-fast) var(--ease),
+    bottom var(--motion-slow) var(--ease);
 }
 
 .panel-expand-tab.is-visible {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  translate: 0 -50%;
+  translate: 0 0;
 }
 
 .panel-expand-tab:hover {

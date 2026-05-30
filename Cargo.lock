@@ -4545,7 +4545,7 @@ dependencies = [
 
 [[package]]
 name = "trivor"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "dark-light",
  "rfd",
@@ -4565,16 +4565,14 @@ dependencies = [
 
 [[package]]
 name = "trivor-core"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
- "glam",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "trivor-i18n"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "serde",
  "sys-locale",
@@ -4583,7 +4581,7 @@ dependencies = [
 
 [[package]]
 name = "trivor-loaders"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "glam",
@@ -4591,7 +4589,6 @@ dependencies = [
  "image",
  "rayon",
  "thiserror 2.0.18",
- "tracing",
  "trivor-core",
 ]
 

@@ -23,7 +23,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | Area | Capabilities |
 |------|--------------|
 | **Viewport** | Orbit, zoom, fit, reset camera; double-click to fit; cinema mode with auto-rotate |
-| **Library** | Open a single file or scan a folder; search; format badges; reveal in Finder |
+| **Library** | Open a file or folder; format badges; reveal in Finder |
 | **Inspector** | Vertex / triangle / mesh / material counts; bounding dimensions; material swatches |
 | **Scene aids** | Optional grid floor; model center and axis guides (off by default) |
 | **System integration** | Native menu bar; Finder “Open with”; configurable keyboard shortcuts |
@@ -53,13 +53,13 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 
 - **File → Open…** (`⌘O`) — select a `.gltf` or `.glb` file.
 - **File → Open Folder…** (`⌘⇧O`) — scan a directory and list all supported models.
-- **Finder** — right-click a model → **Open With → Trivor** (after first launch).
+- **Finder** — right-click a `.gltf`, `.glb`, or folder → **Open With → Trivor**.
 
 ### Library
 
 - Select a model in the sidebar to load it in the viewport.
-- Use the search field to filter by name.
 - Hover a row for **Show in Finder** and **Remove from list**.
+- Right-click for **Refresh folder** or **Refresh library**.
 - **Clear list** removes all entries without deleting files on disk.
 
 ### Viewport
@@ -140,7 +140,8 @@ trivor/
 │   ├── core/            # Scene summary types
 │   ├── loaders/         # glTF / GLB load and pack
 │   └── i18n/            # UI strings (en / zh-Hans)
-├── public/              # Static assets (logo)
+├── assets/              # Branding sources (app icon)
+├── public/              # Static assets served to the web UI
 └── docs/                # Release and contributor docs
 ```
 

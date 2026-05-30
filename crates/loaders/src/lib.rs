@@ -25,12 +25,11 @@ pub(crate) fn viewer_cache_dir() -> PathBuf {
 }
 
 use thiserror::Error;
-use trivor_core::{LoadedScene, SceneSummary};
+use trivor_core::SceneSummary;
 
 pub use folder::list_models_in_folder;
+pub use gltf_loader::{inspect_gltf_summary, ProgressFn};
 pub use gltf_pack::resolve_viewer_model;
-
-pub use gltf_loader::{load_gltf, load_gltf_with_progress, ProgressFn};
 
 #[derive(Debug, Error)]
 pub enum LoadError {
@@ -40,11 +39,6 @@ pub enum LoadError {
     Io { path: PathBuf, message: String },
     #[error("failed to load {path}: {message}")]
     Parse { path: PathBuf, message: String },
-}
-
-/// Load a model file (M1: glTF / GLB).
-pub fn load_model(path: &Path) -> Result<LoadedScene, LoadError> {
-    load_model_with_progress(path, None)
 }
 
 /// Load metadata for the inspector (lightweight glTF scan; preview uses model-viewer).
@@ -59,32 +53,7 @@ pub fn load_scene_summary(
         .ok_or_else(|| LoadError::UnsupportedFormat("unknown".into()))?;
 
     match ext.as_str() {
-        "glb" | "gltf" => gltf_loader::inspect_gltf_summary(path, progress),
-        "obj" | "stl" => Err(LoadError::Parse {
-            path: path.to_path_buf(),
-            message: format!("`.{ext}` support coming in M2"),
-        }),
-        other => Err(LoadError::UnsupportedFormat(other.into())),
-    }
-}
-
-/// Load with optional progress callback (`0..=100`).
-pub fn load_model_with_progress(
-    path: &Path,
-    progress: Option<&ProgressFn<'_>>,
-) -> Result<LoadedScene, LoadError> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .ok_or_else(|| LoadError::UnsupportedFormat("unknown".into()))?;
-
-    match ext.as_str() {
-        "glb" | "gltf" => load_gltf_with_progress(path, progress),
-        "obj" | "stl" => Err(LoadError::Parse {
-            path: path.to_path_buf(),
-            message: format!("`.{ext}` support coming in M2"),
-        }),
+        "glb" | "gltf" => inspect_gltf_summary(path, progress),
         other => Err(LoadError::UnsupportedFormat(other.into())),
     }
 }

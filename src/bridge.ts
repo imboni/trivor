@@ -23,6 +23,16 @@ export function openFolderDialog(): Promise<string | null> {
   return invoke("open_folder_dialog");
 }
 
+export function completeStartup(): Promise<string[]> {
+  return invoke("complete_startup");
+}
+
+export type PathKind = "file" | "directory" | "missing";
+
+export function pathKind(path: string): Promise<PathKind> {
+  return invoke("path_kind", { path });
+}
+
 export function listModelsInFolder(dir: string): Promise<ModelListEntry[]> {
   return invoke("scan_models_folder", { dir });
 }

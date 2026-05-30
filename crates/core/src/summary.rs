@@ -2,8 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::LoadedScene;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialSummary {
     pub name: String,
@@ -33,38 +31,4 @@ pub struct SceneSummary {
     pub bounds_h: f32,
     pub bounds_d: f32,
     pub materials: Vec<MaterialSummary>,
-}
-
-impl SceneSummary {
-    pub fn from_scene(scene: &LoadedScene) -> Self {
-        let name = std::path::Path::new(&scene.source_path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("model")
-            .to_string();
-
-        let materials = scene
-            .materials
-            .iter()
-            .map(|m| MaterialSummary {
-                name: m.name.clone(),
-                base_color: m.base_color,
-            })
-            .collect();
-
-        Self {
-            name,
-            path: scene.source_path.clone(),
-            format: scene.format.clone(),
-            file_size: scene.file_size,
-            mesh_count: scene.stats.mesh_count,
-            material_count: scene.stats.material_count,
-            vertex_count: scene.stats.vertex_count,
-            triangle_count: scene.stats.triangle_count,
-            bounds_w: scene.stats.bounds_size[0],
-            bounds_h: scene.stats.bounds_size[1],
-            bounds_d: scene.stats.bounds_size[2],
-            materials,
-        }
-    }
 }

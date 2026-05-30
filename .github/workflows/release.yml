@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Tag to build (e.g. v0.0.1)"
+        description: "Tag to build (e.g. v0.1.0)"
         required: true
-        default: "v0.0.1"
+        default: "v0.1.0"
 
 permissions:
   contents: write
@@ -61,13 +61,28 @@ jobs:
           ls -lh "./${OUT}"
           echo "path=${OUT}" >> "$GITHUB_OUTPUT"
 
+      - name: Extract release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
+          VERSION="${TAG#v}"
+          chmod +x scripts/changelog-extract.sh
+          ./scripts/changelog-extract.sh "$VERSION" > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "No CHANGELOG section for ${VERSION}" >&2
+            exit 1
+          fi
+          echo "--- release notes ---"
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           name: Trivor ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          body_path: release-notes.md
           files: ${{ steps.dmg.outputs.path }}
-          generate_release_notes: true
+          generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name, '-') }}
           make_latest: true

@@ -29,9 +29,11 @@
   --glass-shadow: var(--shadow-sm);
   --explorer-w: 272px;
   --inspector-w: 288px;
-  --panel-max-h: calc(
-    100vh - var(--shell-pad) * 2 - var(--bottom-dock-outer-h) - 16px
+  --panel-axis-gap: 12px;
+  --panel-bottom-bound: calc(
+    var(--shell-pad) + var(--axis-widget-size) + var(--panel-axis-gap)
   );
+  --panel-max-h: calc(100vh - var(--shell-pad) - var(--panel-bottom-bound));
   --scrollbar-size: 4px;
   --bottom-dock-outer-h: 60px;
   --axis-widget-size: 68px;

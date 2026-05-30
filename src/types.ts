@@ -16,7 +16,6 @@ export interface UiBundle {
   menu_view_on_github: string;
   menu_report_issue: string;
   settings_about: string;
-  settings_updates: string;
   settings_resources: string;
   check_for_updates: string;
   update_checking: string;
@@ -29,25 +28,23 @@ export interface UiBundle {
   report_issue: string;
   view_on_github: string;
   license_mit: string;
-  search_placeholder: string;
   sidebar_models: string;
   sidebar_empty: string;
   remove_model: string;
   show_in_folder: string;
+  refresh_folder: string;
+  refresh_library: string;
+  refresh_library_unavailable: string;
   clear_library: string;
   clear_library_confirm: string;
   cancel: string;
   inspector_title: string;
-  viewport_hints: string;
-  empty_hint: string;
   error_title: string;
   model_count: string;
   panel_materials: string;
-  panel_model: string;
   panel_dimensions: string;
   inspector_placeholder: string;
   empty_title: string;
-  empty_subtitle: string;
   loading: string;
   loading_reading: string;
   loading_packing: string;
@@ -75,8 +72,6 @@ export interface UiBundle {
   metric_axis_d: string;
   close_settings: string;
   file_dialog_filter: string;
-  metric_format: string;
-  metric_size: string;
   metric_meshes: string;
   metric_materials: string;
   metric_vertices: string;
@@ -107,8 +102,6 @@ export interface UiBundle {
   settings_viewer_scene: string;
   scene_preview_grid: string;
   scene_guides: string;
-  scene_option_on: string;
-  scene_option_off: string;
   tool_preview_grid: string;
   tool_scene_guides: string;
 }

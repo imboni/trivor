@@ -7,5 +7,5 @@
 | [CHANGELOG.md](../CHANGELOG.md) | English | Release history |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | English | Contributor guide |
 | [SECURITY.md](../SECURITY.md) | English | Vulnerability reporting |
-| [RELEASE.md](RELEASE.md) | English | macOS signing and notarization |
+| [RELEASE.md](RELEASE.md) | English | Version bump, changelog, and GitHub Release workflow |
 | [icon.md](icon.md) | 简体中文 | Application icon generation |

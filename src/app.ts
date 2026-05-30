@@ -2,12 +2,14 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   checkForUpdates,
+  completeStartup,
   getAppInfo,
   getUiBundle,
   listModelsInFolder,
   loadModel,
   normalizeModelPath,
   openExternalUrl,
+  pathKind,
   revealModelInFolder,
   resolveViewerModelPath,
   onLoadProgress,
@@ -32,7 +34,9 @@ import {
   formatModelFormat,
   rgbaCss,
 } from "./format";
-import { libraryTreeListKey, renderLibraryTree } from "./library-tree";
+import { activeModelFolderKey, libraryTreeListKey, renderLibraryTree } from "./library-tree";
+import { LibraryContextMenu } from "./library-menu";
+import { isPathUnderDir, resolveLibraryMenuFolder } from "./library-path";
 import {
   bindingFromEvent,
   renderShortcutsSettings,
@@ -103,6 +107,8 @@ export class App {
   private readonly summaryCache = new Map<string, SceneSummary>();
   private readonly cameraByPath = new Map<string, SavedCamera>();
   private loadToken = 0;
+  private sidebarItemAnimating = false;
+  private libraryRefreshing = false;
   private dialogOpen = false;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private setGridParallaxDormant: ((dormant: boolean) => void) | null = null;
@@ -116,6 +122,7 @@ export class App {
   private readonly shell: HTMLElement;
   private readonly viewport: ModelViewport;
   private readonly axisWidget: AxisOrientationWidget;
+  private readonly libraryMenu: LibraryContextMenu;
   private readonly els: Record<string, HTMLElement>;
 
   constructor(root: HTMLElement) {
@@ -203,6 +210,16 @@ export class App {
 
     this.viewport = new ModelViewport(this.els.viewportHost);
     this.axisWidget = new AxisOrientationWidget(this.els.axisWidget, () => this.viewport.element);
+    this.libraryMenu = new LibraryContextMenu(this.shell);
+    this.libraryMenu.setHandler((action, folderDir) => {
+      if (action === "refresh-folder" && folderDir) {
+        void this.refreshFolder(folderDir);
+        return;
+      }
+      if (action === "refresh-library") {
+        void this.refreshLibrary();
+      }
+    });
     this.viewport.attachWheelSurface(this.els.viewportMain);
     this.bind();
     this.bindCinemaIdleResume();
@@ -237,8 +254,12 @@ export class App {
     });
     await listen<string>("menu-action", (e) => this.onMenuAction(e.payload));
     await listen<string>("open-path", (e) => {
-      void this.openPath(e.payload, { addToList: true });
+      void this.handleExternalOpen(e.payload);
     });
+    const pendingOpens = await completeStartup();
+    for (const path of pendingOpens) {
+      await this.handleExternalOpen(path);
+    }
     document.addEventListener("keydown", (e) => this.onKey(e));
     this.paint();
   }
@@ -428,13 +449,39 @@ export class App {
       this.performClearLibrary();
     });
     document.addEventListener("click", () => {
+      this.libraryMenu.hide();
       if (!this.clearConfirmOpen) return;
       this.clearConfirmOpen = false;
       this.paint();
     });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.libraryMenu.hide();
+    });
     this.els.clearConfirmPop.addEventListener("click", (e) => e.stopPropagation());
     this.els.collapseExplorer.addEventListener("click", () => this.toggleExplorerCollapsed());
     this.els.collapseInspector.addEventListener("click", () => this.toggleInspectorCollapsed());
+
+    this.els.sidebarBody.addEventListener("contextmenu", (e) => {
+      if (this.libraryRefreshing) return;
+      const target = e.target as HTMLElement;
+      if (!this.els.sidebarBody.contains(target)) return;
+      e.preventDefault();
+
+      const folderDir = resolveLibraryMenuFolder(target);
+      const canRefreshLibrary = this.libraryRoots.length > 0;
+      if (!folderDir && !canRefreshLibrary) return;
+
+      this.libraryMenu.show({
+        ui: this.ui,
+        x: e.clientX,
+        y: e.clientY,
+        folderDir,
+        canRefreshLibrary,
+      });
+    });
+    this.els.sidebarBody.addEventListener("scroll", () => this.libraryMenu.hide(), {
+      passive: true,
+    });
 
     this.els.sidebarBody.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
@@ -600,6 +647,8 @@ export class App {
     this.els.appearanceLabel.textContent = this.ui.appearance;
     this.els.shortcutsLabel.textContent = this.ui.settings_shortcuts;
     this.els.shortcutsResetAllLabel.textContent = this.ui.shortcuts_reset_all;
+    this.els.shortcutsResetAll.title = this.ui.shortcuts_reset_all;
+    this.els.shortcutsResetAll.setAttribute("aria-label", this.ui.shortcuts_reset_all);
     this.els.sceneLabel.textContent = this.ui.settings_viewer_scene;
     this.paintSceneSettings(true);
     this.els.aboutLabel.textContent = this.ui.settings_about;
@@ -835,6 +884,7 @@ export class App {
             data-scene-option="${key}"
             role="switch"
             aria-checked="${on ? "true" : "false"}"
+            title="${escapeAttr(label)}"
             aria-label="${escapeAttr(label)}"
           >
             <span class="settings-scene-row-label">
@@ -1055,10 +1105,23 @@ export class App {
     if (inspIcon) {
       inspIcon.textContent = this.inspectorCollapsed ? "chevron_left" : "chevron_right";
     }
+
+    const showModelPanels =
+      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    const showLibraryToggle = showModelPanels && this.models.length > 0 && !this.cinemaMode;
+    const librarySlot = this.els.toggleLibrary.parentElement;
+    librarySlot?.classList.toggle("is-visible", showLibraryToggle);
+    this.els.toggleLibrary.classList.toggle("is-visible", showLibraryToggle);
     this.els.toggleLibrary.classList.toggle(
       "is-active",
-      this.models.length > 0 && !this.explorerCollapsed,
+      showLibraryToggle && !this.explorerCollapsed,
     );
+    (this.els.toggleLibrary as HTMLButtonElement).disabled = !showLibraryToggle;
+    this.els.toggleLibrary.setAttribute("aria-hidden", showLibraryToggle ? "false" : "true");
+    const libraryIcon = this.els.toggleLibrary.querySelector(".material-symbols-outlined");
+    if (libraryIcon) {
+      libraryIcon.textContent = this.explorerCollapsed ? "chevron_right" : "side_navigation";
+    }
   }
 
   private async pickFile(): Promise<void> {
@@ -1137,6 +1200,109 @@ export class App {
     if (!this.libraryRoots.includes(normalized)) {
       this.libraryRoots.push(normalized);
     }
+  }
+
+  private async refreshFolder(dir: string): Promise<void> {
+    if (this.libraryRefreshing) return;
+    this.libraryRefreshing = true;
+    this.libraryMenu.hide();
+    try {
+      const scanned = await listModelsInFolder(dir);
+      const removed = this.syncModelsUnderDir(dir, scanned);
+      await this.handleModelsRemovedFromLibrary(removed);
+      this.paint();
+    } catch (err) {
+      this.showToast(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.libraryRefreshing = false;
+    }
+  }
+
+  private async refreshLibrary(): Promise<void> {
+    if (this.libraryRefreshing) return;
+    if (this.libraryRoots.length === 0) {
+      this.showToast(this.ui.refresh_library_unavailable);
+      return;
+    }
+    this.libraryRefreshing = true;
+    this.libraryMenu.hide();
+    try {
+      const allScanned: ModelListEntry[] = [];
+      const seen = new Set<string>();
+      for (const root of this.libraryRoots) {
+        const items = await listModelsInFolder(root);
+        for (const item of items) {
+          if (seen.has(item.path)) continue;
+          seen.add(item.path);
+          allScanned.push(item);
+        }
+      }
+
+      const scannedPaths = new Set(allScanned.map((s) => s.path));
+      const removed: string[] = [];
+      this.models = this.models.filter((m) => {
+        const underRoot = this.libraryRoots.some((r) => isPathUnderDir(m.path, r));
+        if (!underRoot) return true;
+        if (scannedPaths.has(m.path)) return true;
+        removed.push(m.path);
+        this.summaryCache.delete(m.path);
+        this.cameraByPath.delete(m.path);
+        return false;
+      });
+
+      let skipped = 0;
+      for (const entry of allScanned) {
+        if (!this.tryUpsertModel(entry)) skipped++;
+      }
+      if (skipped > 0) this.notifyLibraryLimit(skipped);
+
+      await this.handleModelsRemovedFromLibrary(removed);
+      this.paint();
+    } catch (err) {
+      this.showToast(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.libraryRefreshing = false;
+    }
+  }
+
+  private syncModelsUnderDir(dir: string, scanned: ModelListEntry[]): string[] {
+    const scannedPaths = new Set(scanned.map((s) => s.path));
+    const removed: string[] = [];
+
+    this.models = this.models.filter((m) => {
+      if (!isPathUnderDir(m.path, dir)) return true;
+      if (scannedPaths.has(m.path)) return true;
+      removed.push(m.path);
+      this.summaryCache.delete(m.path);
+      this.cameraByPath.delete(m.path);
+      return false;
+    });
+
+    let skipped = 0;
+    for (const entry of scanned) {
+      if (!this.tryUpsertModel(entry)) skipped++;
+    }
+    if (skipped > 0) this.notifyLibraryLimit(skipped);
+
+    return removed;
+  }
+
+  private async handleModelsRemovedFromLibrary(removed: string[]): Promise<void> {
+    if (!this.activePath || !removed.includes(this.activePath)) return;
+
+    if (this.models.length === 0) {
+      this.unloadScene();
+      return;
+    }
+
+    const index = this.models.findIndex((m) => m.path === this.activePath);
+    this.loadToken++;
+    this.activePath = null;
+    this.summary = null;
+    this.viewport.clear();
+
+    const next = this.models[Math.min(Math.max(index, 0), this.models.length - 1)]!;
+    await this.openPath(next.path);
   }
 
   private toggleFolderCollapsed(folderKey: string): void {
@@ -1341,6 +1507,31 @@ export class App {
       format: ext,
       file_size: existing?.file_size ?? 0,
     };
+  }
+
+  private async handleExternalOpen(path: string): Promise<void> {
+    try {
+      path = await normalizeModelPath(path);
+    } catch {
+      /* keep original */
+    }
+
+    const kind = await pathKind(path);
+    if (kind === "directory") {
+      await this.loadFolder(path);
+      return;
+    }
+    if (kind === "missing") {
+      this.phase = "error";
+      this.status = this.ui.error_unknown_file_type;
+      this.summary = null;
+      this.activePath = null;
+      this.viewport.clear();
+      this.paint();
+      return;
+    }
+
+    await this.openPath(path, { addToList: true });
   }
 
   private async openPath(path: string, opts?: { addToList?: boolean }): Promise<void> {
@@ -1575,31 +1766,88 @@ export class App {
   }
 
   private removeModel(path: string): void {
+    if (this.sidebarItemAnimating) return;
+    void this.removeModelAnimated(path);
+  }
+
+  private findModelRow(path: string): HTMLElement | null {
+    return (
+      this.els.sidebarBody.querySelector<HTMLElement>(
+        `[data-action=remove-model][data-model-path="${CSS.escape(path)}"]`,
+      )?.closest(".model-row") ?? null
+    );
+  }
+
+  private animateListItemOut(el: HTMLElement): Promise<void> {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return Promise.resolve();
+    }
+
+    const height = el.getBoundingClientRect().height;
+    el.style.overflow = "hidden";
+    el.style.maxHeight = `${height}px`;
+
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        el.removeEventListener("transitionend", onTransitionEnd);
+        resolve();
+      };
+
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target !== el || event.propertyName !== "max-height") return;
+        finish();
+      };
+
+      el.addEventListener("transitionend", onTransitionEnd);
+      window.setTimeout(finish, 420);
+
+      requestAnimationFrame(() => {
+        el.classList.add("is-removing");
+      });
+    });
+  }
+
+  private async removeModelAnimated(path: string): Promise<void> {
     const index = this.models.findIndex((m) => m.path === path);
     if (index < 0) return;
 
     const wasActive = this.activePath === path;
-    this.models.splice(index, 1);
-    this.summaryCache.delete(path);
-    this.cameraByPath.delete(path);
+    const row = this.findModelRow(path);
 
-    if (this.models.length === 0) {
-      this.unloadScene();
-      return;
+    this.sidebarItemAnimating = true;
+    try {
+      if (row) {
+        await this.animateListItemOut(row);
+        row.remove();
+      }
+
+      this.models.splice(index, 1);
+      this.summaryCache.delete(path);
+      this.cameraByPath.delete(path);
+
+      if (this.models.length === 0) {
+        this.unloadScene();
+        return;
+      }
+
+      if (!wasActive) {
+        this.paint();
+        return;
+      }
+
+      this.loadToken++;
+      this.activePath = null;
+      this.summary = null;
+      this.viewport.clear();
+
+      const next = this.models[Math.min(index, this.models.length - 1)]!;
+      void this.openPath(next.path);
+    } finally {
+      this.sidebarItemAnimating = false;
     }
-
-    if (!wasActive) {
-      this.paint();
-      return;
-    }
-
-    this.loadToken++;
-    this.activePath = null;
-    this.summary = null;
-    this.viewport.clear();
-
-    const next = this.models[Math.min(index, this.models.length - 1)]!;
-    void this.openPath(next.path);
   }
 
   private performClearLibrary(): void {
@@ -1624,6 +1872,7 @@ export class App {
     this.folderPath = null;
     this.libraryRoots = [];
     this.collapsedFolders.clear();
+    this.explorerCollapsed = false;
     this.phase = "empty";
     this.status = "";
     this.cinemaMode = false;
@@ -1653,11 +1902,17 @@ export class App {
     }
 
     const active = this.activePath;
+    const activeFolderKey = activeModelFolderKey(active);
     for (const row of body.querySelectorAll<HTMLElement>(".model-row")) {
       const path = row
         .querySelector<HTMLElement>("[data-action=select-model]")
         ?.getAttribute("data-model-path");
       row.classList.toggle("active", path === active);
+    }
+    for (const folder of body.querySelectorAll<HTMLElement>(".lib-folder")) {
+      const key = folder.getAttribute("data-folder-key");
+      const containsActive = activeFolderKey !== null && key === activeFolderKey;
+      folder.classList.toggle("contains-active", containsActive);
     }
 
     this.paintModelCount();
@@ -1772,7 +2027,7 @@ export class App {
         (m) => `
         <li class="mat-item">
           <span class="swatch" style="background:${rgbaCss(m.base_color)}"></span>
-          <span class="mat-item-name">${escapeHtml(m.name)}</span>
+          <span class="mat-item-name" title="${escapeAttr(m.name)}">${escapeHtml(m.name)}</span>
         </li>`,
       )
       .join("");
@@ -1846,15 +2101,19 @@ const SHELL_HTML = `
   </main>
 
   <aside class="explorer-rail glass-capsule">
-    <button type="button" class="rail-primary-btn" data-action="sidebar-open-file" aria-label="">
-      <span class="material-symbols-outlined">add</span>
-    </button>
-    <button type="button" class="rail-icon-btn" data-action="sidebar-open-folder" aria-label="">
-      <span class="material-symbols-outlined">folder_open</span>
-    </button>
-    <button type="button" class="rail-icon-btn" data-action="toggle-library" aria-label="">
-      <span class="material-symbols-outlined">side_navigation</span>
-    </button>
+    <div class="rail-actions">
+      <button type="button" class="rail-primary-btn" data-action="sidebar-open-file" aria-label="">
+        <span class="material-symbols-outlined">add</span>
+      </button>
+      <button type="button" class="rail-icon-btn" data-action="sidebar-open-folder" aria-label="">
+        <span class="material-symbols-outlined">folder_open</span>
+      </button>
+      <div class="rail-library-slot">
+        <button type="button" class="rail-icon-btn rail-library-toggle" data-action="toggle-library" aria-label="">
+          <span class="material-symbols-outlined">side_navigation</span>
+        </button>
+      </div>
+    </div>
     <button type="button" class="rail-icon-btn rail-settings" data-action="settings" aria-label="">
       <span class="material-symbols-outlined">settings</span>
     </button>
@@ -1897,7 +2156,7 @@ const SHELL_HTML = `
       </div>
       <h2 class="inspector-title" data-bind="inspector-title">—</h2>
     </header>
-    <div class="inspector-body" data-bind="inspector"></div>
+    <div class="inspector-body scroll-subtle" data-bind="inspector"></div>
   </aside>
 
   <footer class="bottom-dock glass-capsule" data-bind="viewport-dock">

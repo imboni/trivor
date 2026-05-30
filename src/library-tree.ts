@@ -1,4 +1,5 @@
 import { formatBytes, formatModelFormat } from "./format";
+import { normalizeDir, normalizePath, parentDirFromPath } from "./library-path";
 import type { ModelListEntry, UiBundle } from "./types";
 
 export type LibraryModelNode = {
@@ -38,8 +39,9 @@ function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/'/g, "&#39;");
 }
 
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
+export function activeModelFolderKey(activePath: string | null): string | null {
+  if (!activePath) return null;
+  return parentDirFromPath(activePath);
 }
 
 function pathParts(path: string): string[] {
@@ -55,7 +57,7 @@ function findLongestRoot(filePath: string, roots: readonly string[]): string | n
   const normalized = normalizePath(filePath);
   let best: string | null = null;
   for (const root of roots) {
-    const nr = normalizePath(root).replace(/\/$/, "");
+    const nr = normalizeDir(root);
     if (normalized === nr || normalized.startsWith(`${nr}/`)) {
       if (!best || nr.length > best.length) best = nr;
     }
@@ -155,7 +157,7 @@ export function buildLibraryTree(
 
   const rootMap = new Map<string, LibraryFolderNode>();
   for (const root of roots) {
-    const nr = normalizePath(root).replace(/\/$/, "");
+    const nr = normalizeDir(root);
     const node: LibraryFolderNode = {
       kind: "folder",
       key: nr,
@@ -182,6 +184,8 @@ function renderFolder(
 ): string {
   const collapsed = opts.collapsedFolders.has(folder.key);
   const count = countModels(folder);
+  const activeFolderKey = activeModelFolderKey(opts.activePath);
+  const containsActive = activeFolderKey !== null && folder.key === activeFolderKey;
   const childDepth = depth + 1;
   const childrenHtml = folder.children
     .map((child) =>
@@ -192,7 +196,7 @@ function renderFolder(
     .join("");
 
   return `
-    <div class="lib-folder${collapsed ? " is-collapsed" : ""}" data-folder-key="${escapeAttr(folder.key)}">
+    <div class="lib-folder${collapsed ? " is-collapsed" : ""}${containsActive ? " contains-active" : ""}" data-folder-key="${escapeAttr(folder.key)}">
       <div class="lib-folder-head" style="--depth:${depth}">
         <button
           type="button"
@@ -203,20 +207,23 @@ function renderFolder(
           title="${escapeAttr(folder.pathLabel)}"
         >
           <span class="material-symbols-outlined lib-folder-chevron" aria-hidden="true">expand_more</span>
-          <span class="material-symbols-outlined lib-folder-icon" aria-hidden="true">folder</span>
+          <span class="material-symbols-outlined lib-folder-icon lib-folder-icon-line" aria-hidden="true">folder</span>
+          <span class="material-symbols-outlined lib-folder-icon lib-folder-icon-solid" aria-hidden="true">folder</span>
           <span class="lib-folder-name">${escapeHtml(folder.name)}</span>
           <span class="lib-folder-count">${count}</span>
         </button>
-        <button
-          type="button"
-          class="lib-folder-locate"
-          data-action="reveal-folder"
-          data-folder-key="${escapeAttr(folder.key)}"
-          title="${escapeAttr(folder.pathLabel)}"
-          aria-label="${escapeAttr(opts.ui.show_in_folder)}"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
-        </button>
+        <div class="lib-folder-actions">
+          <button
+            type="button"
+            class="lib-folder-locate"
+            data-action="reveal-folder"
+            data-folder-key="${escapeAttr(folder.key)}"
+            title="${escapeAttr(opts.ui.show_in_folder)}"
+            aria-label="${escapeAttr(opts.ui.show_in_folder)}"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
+          </button>
+        </div>
       </div>
       <div class="lib-folder-children">
         <div class="lib-folder-children-inner">
@@ -232,7 +239,6 @@ function renderModelRow(node: LibraryModelNode, depth: number, opts: LibraryTree
   const fmt = formatModelFormat(m.format, opts.ui);
   const pillClass = m.format.toLowerCase() === "glb" ? "format-pill is-glb" : "format-pill";
   const size = m.file_size ? formatBytes(m.file_size, opts.ui) : "";
-  const parentPath = normalizePath(m.path).replace(/\/[^/]+$/, "");
 
   return `
     <div class="model-row ${active ? "active" : ""}" style="--depth:${depth}">
@@ -245,19 +251,28 @@ function renderModelRow(node: LibraryModelNode, depth: number, opts: LibraryTree
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        class="model-row-locate"
-        data-action="reveal-model"
-        data-model-path="${escapeAttr(m.path)}"
-        title="${escapeAttr(parentPath)}"
-        aria-label="${escapeAttr(opts.ui.show_in_folder)}"
-      >
-        <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
-      </button>
-      <button type="button" class="model-row-remove" data-action="remove-model" data-model-path="${escapeAttr(m.path)}" aria-label="${escapeAttr(opts.ui.remove_model)}">
-        <span class="material-symbols-outlined">close</span>
-      </button>
+      <div class="model-row-actions">
+        <button
+          type="button"
+          class="model-row-locate"
+          data-action="reveal-model"
+          data-model-path="${escapeAttr(m.path)}"
+          title="${escapeAttr(opts.ui.show_in_folder)}"
+          aria-label="${escapeAttr(opts.ui.show_in_folder)}"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
+        </button>
+        <button
+          type="button"
+          class="model-row-remove"
+          data-action="remove-model"
+          data-model-path="${escapeAttr(m.path)}"
+          title="${escapeAttr(opts.ui.remove_model)}"
+          aria-label="${escapeAttr(opts.ui.remove_model)}"
+        >
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
     </div>`;
 }
 

@@ -286,6 +286,7 @@ export function renderShortcutsSettings(
             class="settings-shortcut-key"
             data-action="edit-shortcut"
             data-shortcut-id="${def.id}"
+            title="${escapeAttr(copy.pressKeys)}"
             aria-label="${escapeAttr(copy.pressKeys)}"
           >${escapeHtml(display)}</button>
           <button

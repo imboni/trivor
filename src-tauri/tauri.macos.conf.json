@@ -16,7 +16,7 @@
       {
         "ext": ["glb"],
         "name": "Binary glTF",
-        "description": "GL Transmission Format (binary)",
+        "description": "GL Binary Transmission Format",
         "mimeType": "model/gltf-binary",
         "role": "Viewer"
       }

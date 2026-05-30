@@ -25,11 +25,11 @@ npm run build
 cargo build -p trivor
 ```
 
-5. Update [CHANGELOG.md](CHANGELOG.md) under **Unreleased** for user-visible changes.
+5. Update [CHANGELOG.md](CHANGELOG.md) under **`[Unreleased]`** for user-visible changes (`Added` / `Changed` / `Fixed`). Release maintainers move entries into a versioned section when tagging; see [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Translations
 
-UI strings live in `crates/i18n/src/lib.rs`. Add keys to `MessageKey`, both locales in `I18n::t`, and `UiBundle` / `UiStrings` if exposed to the frontend.
+UI strings live in `crates/i18n/src/lib.rs`. Add keys to `MessageKey`, both locales in `I18n::t`, and mirror fields on `UiBundle` / `src/types.ts` when exposed to the frontend.
 
 ## Code of conduct
 
