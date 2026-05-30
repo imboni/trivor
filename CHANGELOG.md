@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-05-28
+## [0.1.0] - 2026-05-30
 
 First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发行版。
 
@@ -34,6 +34,10 @@ First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发�
 
 - Collapsible library and inspector panels — 可折叠模型库与检查器面板
 - About dialog with update check — 关于对话框与更新检查
+
+**Fixed · 修复**
+
+- Icons and UI fonts load correctly in release builds — 修复发布版图标与界面字体无法加载
 
 ## [0.0.2] - 2026-05-28
 
