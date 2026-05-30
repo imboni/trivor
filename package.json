@@ -1,6 +1,6 @@
 {
   "name": "trivor",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Native glTF / GLB viewer for macOS",
   "license": "MIT",
   "repository": {
