@@ -2,6 +2,20 @@ import type { UiBundle } from "./types";
 
 type ByteUnits = Pick<UiBundle, "unit_bytes_b" | "unit_bytes_kb" | "unit_bytes_mb">;
 
+export function formatAppDate(isoDate: string, locale: string): string {
+  if (!isoDate || isoDate === "unknown") return "";
+  const parts = isoDate.split("-").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return isoDate;
+  const [year, month, day] = parts as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return new Intl.DateTimeFormat(locale.startsWith("zh") ? "zh-Hans" : "en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 export function formatBytes(bytes: number, units: ByteUnits): string {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(2)} ${units.unit_bytes_mb}`;

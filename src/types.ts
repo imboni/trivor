@@ -9,10 +9,31 @@ export interface UiBundle {
   open_file: string;
   open_folder: string;
   settings: string;
+  about_description: string;
+  menu_help: string;
+  menu_check_updates: string;
+  menu_release_notes: string;
+  menu_view_on_github: string;
+  menu_report_issue: string;
+  settings_about: string;
+  settings_updates: string;
+  settings_resources: string;
+  check_for_updates: string;
+  update_checking: string;
+  update_up_to_date: string;
+  update_available: string;
+  update_check_failed: string;
+  open_link_failed: string;
+  download_update: string;
+  view_release_notes: string;
+  report_issue: string;
+  view_on_github: string;
+  license_mit: string;
   search_placeholder: string;
   sidebar_models: string;
   sidebar_empty: string;
   remove_model: string;
+  show_in_folder: string;
   clear_library: string;
   clear_library_confirm: string;
   cancel: string;
@@ -75,6 +96,26 @@ export interface UiBundle {
   theme_dark: string;
   theme_light: string;
   theme_system: string;
+}
+
+export interface AppInfo {
+  version: string;
+  build_date: string;
+  repository: string;
+  homepage: string;
+  issues_url: string;
+  releases_url: string;
+  license: string;
+  copyright: string;
+}
+
+export interface UpdateCheckResult {
+  current_version: string;
+  latest_version: string | null;
+  latest_published_at: string | null;
+  update_available: boolean;
+  release_page: string | null;
+  download_url: string | null;
 }
 
 export interface MaterialSummary {

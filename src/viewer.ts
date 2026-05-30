@@ -28,6 +28,7 @@ interface ModelViewerElement extends HTMLElement {
   updateComplete: Promise<boolean>;
   readonly turntableRotation: number;
   resetTurntableRotation(theta?: number): void;
+  jumpCameraToGoal(): void;
 }
 
 /** ~12% radius change per toolbar click. */
@@ -164,6 +165,20 @@ async function waitForCameraSettled(mv: ModelViewerElement): Promise<void> {
   }
 }
 
+/** Reset camera + turntable before loading another model on the same viewer. */
+async function prepareModelSwap(mv: ModelViewerElement): Promise<void> {
+  mv.resetTurntableRotation(0);
+  mv.cameraTarget = "auto auto auto";
+  mv.cameraOrbit = "auto auto auto";
+  mv.fieldOfView = "auto";
+  if (mv.src) {
+    mv.src = null;
+    await waitFrames(2);
+  }
+  mv.jumpCameraToGoal();
+  await mv.updateComplete;
+}
+
 /** WKWebView eats wheel on the shell — forward to model-viewer's `.userInput` layer. */
 function bindWheelZoom(target: HTMLElement, viewport: ModelViewport): void {
   const onWheel = (e: WheelEvent) => {
@@ -236,13 +251,14 @@ export class ModelViewport {
     this.savedCamera = null;
 
     if (this.mv.src && this.mv.src !== assetUrl) {
-      this.replaceViewerElement();
+      await prepareModelSwap(this.mv);
     }
 
     const mv = this.mv;
 
     const settle = async (): Promise<void> => {
       if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
+      mv.resetTurntableRotation(0);
       try {
         await Promise.race([
           (async () => {

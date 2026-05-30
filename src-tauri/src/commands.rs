@@ -172,3 +172,214 @@ fn format_load_error(err: LoadError, i18n: &I18n) -> String {
         LoadError::Io { message, .. } | LoadError::Parse { message, .. } => message,
     }
 }
+
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    let path = Path::new(&path);
+    if !path.exists() {
+        return Err(format!("Path not found: {}", path.display()));
+    }
+
+    let status = reveal_path_in_file_manager(path).map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Failed to reveal {} (exit {:?})",
+            path.display(),
+            status.code()
+        ))
+    }
+}
+
+fn reveal_path_in_file_manager(path: &Path) -> std::io::Result<std::process::ExitStatus> {
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        if path.is_dir() {
+            Command::new("open").arg(path).status()
+        } else {
+            Command::new("open").args(["-R"]).arg(path).status()
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .status()
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let target = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        Command::new("xdg-open").arg(target).status()
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct AppInfo {
+    pub version: String,
+    pub build_date: String,
+    pub repository: String,
+    pub homepage: String,
+    pub issues_url: String,
+    pub releases_url: String,
+    pub license: String,
+    pub copyright: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct UpdateCheckResult {
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub latest_published_at: Option<String>,
+    pub update_available: bool,
+    pub release_page: Option<String>,
+    pub download_url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    html_url: String,
+    published_at: Option<String>,
+    assets: Vec<GhAsset>,
+    prerelease: bool,
+    draft: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct GhAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+const APP_COPYRIGHT: &str = "Copyright © 2026 imboni and contributors.";
+const APP_REPOSITORY: &str = "https://github.com/imboni/trivor";
+const APP_GITHUB_REPO: &str = "imboni/trivor";
+
+fn package_repository() -> String {
+    let repo = env!("CARGO_PKG_REPOSITORY");
+    if repo.is_empty() {
+        APP_REPOSITORY.to_string()
+    } else {
+        repo.to_string()
+    }
+}
+
+fn github_repo_path(repository: &str) -> String {
+    let trimmed = repository
+        .trim_start_matches("https://github.com/")
+        .trim_end_matches(".git");
+    if trimmed.is_empty() {
+        APP_GITHUB_REPO.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[tauri::command]
+pub fn get_app_info() -> AppInfo {
+    let repository = package_repository();
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_date: env!("BUILD_DATE").to_string(),
+        repository: repository.clone(),
+        homepage: env!("CARGO_PKG_HOMEPAGE").to_string(),
+        issues_url: format!("{repository}/issues"),
+        releases_url: format!("{repository}/releases"),
+        license: env!("CARGO_PKG_LICENSE").to_string(),
+        copyright: APP_COPYRIGHT.to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let repository = package_repository();
+    let repo_path = github_repo_path(&repository);
+
+    let url = format!("https://api.github.com/repos/{repo_path}/releases/latest");
+    let response = ureq::get(&url)
+        .set("Accept", "application/vnd.github+json")
+        .set("User-Agent", "Trivor")
+        .call()
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if response.status() != 200 {
+        return Err(format!("GitHub API returned {}", response.status()));
+    }
+
+    let body = response.into_string().map_err(|e| e.to_string())?;
+    let release: GhRelease = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if release.draft || release.prerelease {
+        return Ok(UpdateCheckResult {
+            current_version: current,
+            latest_version: None,
+            latest_published_at: None,
+            update_available: false,
+            release_page: None,
+            download_url: None,
+        });
+    }
+
+    let latest = release.tag_name.trim_start_matches('v').to_string();
+    let update_available = is_version_newer(&latest, &current);
+    let download_url = release
+        .assets
+        .iter()
+        .find(|a| a.name.ends_with(".dmg"))
+        .map(|a| a.browser_download_url.clone());
+    let latest_published_at = release.published_at.map(|value| value[..10.min(value.len())].to_string());
+
+    Ok(UpdateCheckResult {
+        current_version: current,
+        latest_version: Some(latest),
+        latest_published_at,
+        update_available,
+        release_page: Some(release.html_url),
+        download_url,
+    })
+}
+
+fn is_version_newer(latest: &str, current: &str) -> bool {
+    let latest_parts = parse_version(latest);
+    let current_parts = parse_version(current);
+    let len = latest_parts.len().max(current_parts.len());
+    for i in 0..len {
+        let l = *latest_parts.get(i).unwrap_or(&0);
+        let c = *current_parts.get(i).unwrap_or(&0);
+        if l > c {
+            return true;
+        }
+        if l < c {
+            return false;
+        }
+    }
+    false
+}
+
+fn parse_version(version: &str) -> Vec<u32> {
+    version
+        .trim_start_matches('v')
+        .split('.')
+        .filter_map(|part| part.parse().ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_for_updates;
+
+    #[test]
+    fn github_latest_release_is_reachable() {
+        let result = check_for_updates();
+        assert!(result.is_ok(), "{}", result.err().unwrap_or_default());
+    }
+}

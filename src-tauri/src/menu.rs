@@ -7,12 +7,18 @@ use crate::AppState;
 
 struct MenuText {
     app_name: String,
+    about_description: String,
     file: String,
     view: String,
+    help: String,
     open: String,
     open_folder: String,
     fit: String,
     settings: String,
+    check_updates: String,
+    release_notes: String,
+    view_on_github: String,
+    report_issue: String,
     zoom_in: String,
     zoom_out: String,
     reset_view: String,
@@ -25,12 +31,18 @@ fn menu_texts(app: &AppHandle) -> tauri::Result<MenuText> {
     let s = |k: MessageKey| i18n.t(k).to_string();
     Ok(MenuText {
         app_name: s(MessageKey::AppName),
+        about_description: s(MessageKey::AboutDescription),
         file: s(MessageKey::MenuFile),
         view: s(MessageKey::MenuView),
+        help: s(MessageKey::MenuHelp),
         open: s(MessageKey::MenuOpen),
         open_folder: s(MessageKey::MenuOpenFolder),
         fit: s(MessageKey::MenuFit),
         settings: s(MessageKey::Settings),
+        check_updates: s(MessageKey::MenuCheckUpdates),
+        release_notes: s(MessageKey::MenuReleaseNotes),
+        view_on_github: s(MessageKey::MenuViewOnGitHub),
+        report_issue: s(MessageKey::MenuReportIssue),
         zoom_in: s(MessageKey::ToolZoomIn),
         zoom_out: s(MessageKey::ToolZoomOut),
         reset_view: s(MessageKey::ToolResetView),
@@ -46,6 +58,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             name: Some(t.app_name.clone()),
             version: Some(version.into()),
             copyright: Some("Copyright © 2026 imboni and contributors".into()),
+            comments: Some(t.about_description.clone()),
             ..Default::default()
         }))
         .separator()
@@ -109,6 +122,40 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         .item(&MenuItem::with_id(app, "fit-view", &t.fit, true, Some("CmdOrCtrl+0"))?)
         .build()?;
 
+    let no_shortcut: Option<&str> = None;
+
+    let help_menu = SubmenuBuilder::new(app, &t.help)
+        .item(&MenuItem::with_id(
+            app,
+            "check-updates",
+            &t.check_updates,
+            true,
+            no_shortcut,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "release-notes",
+            &t.release_notes,
+            true,
+            no_shortcut,
+        )?)
+        .separator()
+        .item(&MenuItem::with_id(
+            app,
+            "view-github",
+            &t.view_on_github,
+            true,
+            no_shortcut,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "report-issue",
+            &t.report_issue,
+            true,
+            no_shortcut,
+        )?)
+        .build()?;
+
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .undo()
         .redo()
@@ -132,6 +179,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &edit_menu,
             &view_menu,
             &window_menu,
+            &help_menu,
         ])
         .build()?;
 

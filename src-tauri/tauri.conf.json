@@ -43,8 +43,8 @@
     ],
     "category": "GraphicsAndDesign",
     "copyright": "Copyright © 2026 imboni and contributors.",
-    "shortDescription": "Native glTF / GLB viewer for macOS.",
-    "longDescription": "Trivor (极视) is a fast, native 3D model viewer for Mac. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer.",
+    "shortDescription": "A lightweight 3D model viewer, available for macOS.",
+    "longDescription": "Trivor (极视) is a lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer.",
     "macOS": {
       "minimumSystemVersion": "13.0",
       "hardenedRuntime": false,

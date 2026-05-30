@@ -1,7 +1,7 @@
 {
   "name": "trivor",
   "version": "0.0.2",
-  "description": "Native glTF / GLB viewer for macOS",
+  "description": "A lightweight 3D model viewer, available for macOS.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@google/model-viewer": "^4.1.0",
-    "@tauri-apps/api": "^2.5.0"
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-opener": "^2.5.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0",

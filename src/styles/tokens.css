@@ -4,6 +4,7 @@
   --radius-xs: 8px;
   --radius-sm: 12px;
   --radius: 16px;
+  --radius-md: 16px;
   --radius-lg: 24px;
   --radius-xl: 32px;
   --radius-full: 9999px;
@@ -67,6 +68,10 @@
   --danger: #ffb4ab;
   --danger-soft: rgba(255, 180, 171, 0.12);
 
+  --status-success: #5dd879;
+  --status-warning: #ffb84d;
+  --status-error: #ff8a80;
+
   --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.35);
   --shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   --shadow-glow: 0 0 32px rgba(176, 198, 255, 0.15);
@@ -74,6 +79,7 @@
   --viewport-bg-top: #0d0e11;
   --viewport-bg: #121316;
   --viewport-grid: rgba(176, 198, 255, 0.05);
+  --viewport-grid-major: rgba(176, 198, 255, 0.1);
   --viewport-vignette: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 35%, rgba(0, 0, 0, 0.5) 100%);
   --viewport-overlay: rgba(13, 14, 17, 0.72);
   --backdrop: rgba(0, 0, 0, 0.55);
@@ -112,6 +118,10 @@
   --danger: #93000a;
   --danger-soft: rgba(147, 0, 10, 0.08);
 
+  --status-success: #248a3d;
+  --status-warning: #c93400;
+  --status-error: #ba1a1a;
+
   --shadow-sm: 0 2px 12px rgba(16, 32, 64, 0.1);
   --shadow: 0 16px 48px rgba(16, 32, 64, 0.14);
   --shadow-glow: 0 0 32px rgba(0, 88, 203, 0.1);
@@ -119,6 +129,7 @@
   --viewport-bg-top: #dce3f0;
   --viewport-bg: #e8ebf2;
   --viewport-grid: rgba(0, 88, 203, 0.06);
+  --viewport-grid-major: rgba(0, 88, 203, 0.12);
   --viewport-vignette: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 40%, rgba(200, 210, 225, 0.45) 100%);
   --viewport-overlay: rgba(232, 235, 242, 0.78);
   --backdrop: rgba(16, 28, 52, 0.32);

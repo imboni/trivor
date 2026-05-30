@@ -20,19 +20,97 @@
   pointer-events: none;
 }
 
+.perspective-scene {
+  position: absolute;
+  inset: -25%;
+  perspective: 820px;
+  perspective-origin: 50% 42%;
+  transform-style: preserve-3d;
+}
+
 .perspective-grid {
   position: absolute;
-  top: 0;
   left: -50%;
   width: 200%;
-  height: 200%;
-  perspective: 1000px;
+  height: 260%;
+  top: 8%;
+  transform-style: preserve-3d;
+  transform-origin: 50% 0%;
+  will-change: transform;
   background-image:
+    linear-gradient(to right, var(--viewport-grid-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--viewport-grid-major) 1px, transparent 1px),
     linear-gradient(to right, var(--viewport-grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--viewport-grid) 1px, transparent 1px);
-  background-size: 40px 40px;
-  transform: rotateX(60deg) translateY(-200px);
-  transition: transform 80ms linear;
+  background-size: 240px 240px, 240px 240px, 48px 48px, 48px 48px;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.35) 12%,
+    black 28%,
+    black 72%,
+    transparent 100%
+  );
+}
+
+.perspective-grid--near {
+  opacity: 0.95;
+  transform: rotateX(68deg) translate3d(0, -168px, 0);
+}
+
+.perspective-grid--far {
+  opacity: 0.42;
+  background-size: 320px 320px, 320px 320px, 64px 64px, 64px 64px;
+  transform: rotateX(68.6deg) translate3d(0, -168px, -90px);
+}
+
+.perspective-horizon {
+  position: absolute;
+  left: -30%;
+  right: -30%;
+  top: 33%;
+  height: 1px;
+  transform-origin: center;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 40%, transparent),
+    transparent
+  );
+  box-shadow: 0 0 28px color-mix(in srgb, var(--accent-glow) 45%, transparent);
+  opacity: 0.6;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.perspective-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 36% 28% at var(--grid-glow-x, 50%) var(--grid-glow-y, 68%),
+    color-mix(in srgb, var(--accent-glow) 55%, transparent),
+    transparent 72%
+  );
+  opacity: 0.85;
+  transition: opacity 280ms ease;
+}
+
+.viewport-bg.is-grid-idle .perspective-glow {
+  opacity: 0.35;
+}
+
+.viewport-bg.is-grid-dormant .perspective-scene {
+  opacity: 0.22;
+  transition: opacity 420ms ease;
+}
+
+.viewport-bg.is-grid-dormant .perspective-glow {
+  opacity: 0 !important;
+}
+
+.viewport-bg:not(.is-grid-dormant) .perspective-scene {
+  transition: opacity 420ms ease;
 }
 
 /* —— Main viewport —— */

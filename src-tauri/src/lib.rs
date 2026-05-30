@@ -27,6 +27,7 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(AppState {
             locale: LocalePreference::System,
             theme: ThemePreference::System,
@@ -41,6 +42,9 @@ pub fn run() {
             commands::scan_models_folder,
             commands::resolve_viewer_model_path,
             commands::load_model,
+            commands::reveal_in_finder,
+            commands::get_app_info,
+            commands::check_for_updates,
         ])
         .setup(|app| {
             let handle = app.handle();

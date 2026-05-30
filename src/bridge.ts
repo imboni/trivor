@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ModelListEntry, SceneSummary, UiBundle } from "./types";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { AppInfo, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
 
 export function getUiBundle(): Promise<UiBundle> {
   return invoke("get_ui_bundle");
@@ -45,4 +46,20 @@ export function onPackProgress(handler: (percent: number) => void): Promise<() =
   return listen<{ percent: number }>("pack-progress", (e) => {
     handler(e.payload.percent);
   });
+}
+
+export function revealModelInFolder(path: string): Promise<void> {
+  return invoke("reveal_in_finder", { path });
+}
+
+export function getAppInfo(): Promise<AppInfo> {
+  return invoke("get_app_info");
+}
+
+export function checkForUpdates(): Promise<UpdateCheckResult> {
+  return invoke("check_for_updates");
+}
+
+export function openExternalUrl(url: string): Promise<void> {
+  return openUrl(url);
 }

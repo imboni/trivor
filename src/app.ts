@@ -1,10 +1,14 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  checkForUpdates,
+  getAppInfo,
   getUiBundle,
   listModelsInFolder,
   loadModel,
   normalizeModelPath,
+  openExternalUrl,
+  revealModelInFolder,
   resolveViewerModelPath,
   onLoadProgress,
   onPackProgress,
@@ -19,6 +23,7 @@ import {
   unsupportedModelMessage,
 } from "./model-path";
 import {
+  formatAppDate,
   formatBytes,
   formatCount,
   formatDimension,
@@ -27,10 +32,11 @@ import {
   formatModelFormat,
   rgbaCss,
 } from "./format";
+import { libraryTreeListKey, renderLibraryTree } from "./library-tree";
 
 /** Maximum models kept in the library list. */
 export const MAX_LIBRARY_MODELS = 100;
-import type { AppPhase, ModelListEntry, SceneSummary, UiBundle } from "./types";
+import type { AppInfo, AppPhase, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
 import {
   initTheme,
   loadStoredThemePref,
@@ -42,6 +48,21 @@ import { flushUi } from "./ui";
 import { ModelViewport, type SavedCamera } from "./viewer";
 
 type LocalePref = "en" | "zh-Hans" | "system";
+
+const FALLBACK_REPOSITORY = "https://github.com/imboni/trivor";
+
+function fallbackAppInfo(): AppInfo {
+  return {
+    version: "",
+    build_date: "",
+    repository: FALLBACK_REPOSITORY,
+    homepage: FALLBACK_REPOSITORY,
+    issues_url: `${FALLBACK_REPOSITORY}/issues`,
+    releases_url: `${FALLBACK_REPOSITORY}/releases`,
+    license: "MIT",
+    copyright: "Copyright © 2026 imboni and contributors.",
+  };
+}
 
 export class App {
   private ui!: UiBundle;
@@ -62,6 +83,9 @@ export class App {
   private readonly cinemaIdleMs = 3000;
 
   private folderPath: string | null = null;
+  /** Folder roots added via “open folder”; drives the library tree. */
+  private libraryRoots: string[] = [];
+  private collapsedFolders = new Set<string>();
   private models: ModelListEntry[] = [];
   private activePath: string | null = null;
   private readonly summaryCache = new Map<string, SceneSummary>();
@@ -69,6 +93,10 @@ export class App {
   private loadToken = 0;
   private dialogOpen = false;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private setGridParallaxDormant: ((dormant: boolean) => void) | null = null;
+  private appInfo: AppInfo | null = null;
+  private updateState: "idle" | "checking" | "uptodate" | "available" | "error" = "idle";
+  private updateResult: UpdateCheckResult | null = null;
 
   private readonly shell: HTMLElement;
   private readonly viewport: ModelViewport;
@@ -116,7 +144,31 @@ export class App {
       localeGroup: pick("[data-bind=locale-group]"),
       appearanceLabel: pick("[data-bind=appearance-label]"),
       themeGroup: pick("[data-bind=theme-group]"),
-      perspectiveGrid: pick(".perspective-grid"),
+      aboutLabel: pick("[data-bind=about-label]"),
+      aboutName: pick("[data-bind=about-name]"),
+      aboutVersion: pick("[data-bind=about-version]"),
+      aboutTagline: pick("[data-bind=about-tagline]"),
+      aboutDesc: pick("[data-bind=about-desc]"),
+      aboutMeta: pick("[data-bind=about-meta]"),
+      resourcesLabel: pick("[data-bind=resources-label]"),
+      checkUpdatesBtn: pick("[data-action=check-updates]"),
+      checkUpdatesIcon: pick("[data-bind=check-updates-icon]"),
+      checkUpdatesLabel: pick("[data-bind=check-updates-label]"),
+      downloadUpdateBtn: pick("[data-action=download-update]"),
+      downloadUpdateLabel: pick("[data-bind=download-update-label]"),
+      updateStatus: pick("[data-bind=update-status]"),
+      updateStatusIcon: pick("[data-bind=update-status-icon]"),
+      updateStatusText: pick("[data-bind=update-status-text]"),
+      linkGithub: pick("[data-bind=link-github]"),
+      linkReleases: pick("[data-bind=link-releases]"),
+      linkIssues: pick("[data-bind=link-issues]"),
+      linkLicense: pick("[data-bind=link-license]"),
+      perspectiveScene: pick(".perspective-scene"),
+      perspectiveGridFar: pick(".perspective-grid--far"),
+      perspectiveGridNear: pick(".perspective-grid--near"),
+      perspectiveHorizon: pick(".perspective-horizon"),
+      perspectiveGlow: pick(".perspective-glow"),
+      viewportBg: pick(".viewport-bg"),
       toast: pick("[data-bind=toast]"),
       clearConfirmPop: pick("[data-bind=clear-confirm]"),
       clearConfirmMessage: pick("[data-bind=clear-confirm-message]"),
@@ -138,6 +190,11 @@ export class App {
       bundle = await setThemePreference(storedTheme);
     }
     this.ui = bundle;
+    try {
+      this.appInfo = await getAppInfo();
+    } catch {
+      this.appInfo = fallbackAppInfo();
+    }
     initTheme(bundle);
     watchSystemTheme(() => this.ui.theme_pref as ThemePref);
     this.applyUi();
@@ -157,6 +214,30 @@ export class App {
     });
     document.addEventListener("keydown", (e) => this.onKey(e));
     this.paint();
+  }
+
+  private bindSettingsActions(): void {
+    const bind = (action: string, handler: () => void) => {
+      for (const el of this.shell.querySelectorAll<HTMLElement>(`[data-action="${action}"]`)) {
+        if (el.closest(".settings-panel") === null) continue;
+        el.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handler();
+        });
+      }
+    };
+
+    bind("check-updates", () => void this.handleCheckUpdates(false));
+    bind("download-update", () => void this.openUpdateDownload());
+    bind("open-github", () => void this.openRepository());
+    bind("open-releases", () => void this.openReleaseNotes());
+    bind("open-issues", () => void this.openIssueTracker());
+    bind("open-license", () => void this.openLicense());
+  }
+
+  private appMeta(): AppInfo {
+    return this.appInfo ?? fallbackAppInfo();
   }
 
   private onMenuAction(action: string): void {
@@ -183,6 +264,20 @@ export class App {
       case "fit-view":
         void this.fitView();
         break;
+      case "check-updates":
+        this.settingsOpen = true;
+        this.paint();
+        void this.handleCheckUpdates(true);
+        break;
+      case "release-notes":
+        void this.openReleaseNotes();
+        break;
+      case "view-github":
+        void this.openRepository();
+        break;
+      case "report-issue":
+        void this.openIssueTracker();
+        break;
       default:
         break;
     }
@@ -204,6 +299,7 @@ export class App {
       this.settingsOpen = false;
       this.paint();
     });
+    this.bindSettingsActions();
 
     this.els.viewportHost.addEventListener("dblclick", () => {
       if (this.phase === "ready") void this.viewport.fit();
@@ -265,6 +361,30 @@ export class App {
 
     this.els.sidebarBody.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
+
+      const toggleFolder = target.closest<HTMLElement>("[data-action=toggle-folder]");
+      if (toggleFolder?.dataset.folderKey) {
+        e.preventDefault();
+        this.toggleFolderCollapsed(toggleFolder.dataset.folderKey);
+        return;
+      }
+
+      const revealFolder = target.closest<HTMLElement>("[data-action=reveal-folder]");
+      if (revealFolder?.dataset.folderKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        void revealModelInFolder(revealFolder.dataset.folderKey);
+        return;
+      }
+
+      const revealModel = target.closest<HTMLElement>("[data-action=reveal-model]");
+      if (revealModel?.dataset.modelPath) {
+        e.preventDefault();
+        e.stopPropagation();
+        void revealModelInFolder(revealModel.dataset.modelPath);
+        return;
+      }
+
       const removeBtn = target.closest<HTMLElement>("[data-action=remove-model]");
       if (removeBtn) {
         e.preventDefault();
@@ -305,12 +425,88 @@ export class App {
   }
 
   private bindParallax(): void {
-    const grid = this.els.perspectiveGrid;
-    window.addEventListener("mousemove", (e) => {
-      const x = (e.clientX / window.innerWidth - 0.5) * 10;
-      const y = (e.clientY / window.innerHeight - 0.5) * 10;
-      grid.style.transform = `rotateX(60deg) translateY(-200px) translateX(${x}px) translateZ(${y}px)`;
-    });
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const scene = this.els.perspectiveScene;
+    const layerFar = this.els.perspectiveGridFar;
+    const layerNear = this.els.perspectiveGridNear;
+    const horizon = this.els.perspectiveHorizon;
+    const glow = this.els.perspectiveGlow;
+    const viewportBg = this.els.viewportBg;
+    if (!scene || !layerFar || !layerNear || !horizon || !glow || !viewportBg) return;
+
+    const target = { x: 0, y: 0 };
+    const current = { x: 0, y: 0 };
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let ticking = false;
+    let dormant = false;
+    const epsilon = 0.0008;
+
+    const applyParallax = (): void => {
+      const tiltX = 68 + current.y * -2.8;
+      const driftX = current.x * 32;
+      const driftZ = current.y * 22;
+      const glowX = 50 + current.x * 18;
+      const glowY = 66 + current.y * 10;
+
+      scene.style.perspectiveOrigin = `${50 + current.x * 10}% ${40 + current.y * 8}%`;
+      glow.style.setProperty("--grid-glow-x", `${glowX}%`);
+      glow.style.setProperty("--grid-glow-y", `${glowY}%`);
+
+      layerNear.style.transform =
+        `rotateX(${tiltX}deg) rotateZ(${current.x * -1.2}deg) translate3d(${driftX}px, -168px, ${driftZ}px)`;
+      layerFar.style.transform =
+        `rotateX(${tiltX + 0.6}deg) rotateZ(${current.x * -0.6}deg) translate3d(${driftX * 0.45}px, -168px, ${driftZ * 0.45 - 90}px)`;
+      horizon.style.transform =
+        `translate3d(${driftX * 0.22}px, ${current.y * 10}px, 0) scaleX(${1 + Math.abs(current.x) * 0.06})`;
+    };
+
+    const needsTick = (): boolean =>
+      Math.abs(target.x - current.x) > epsilon || Math.abs(target.y - current.y) > epsilon;
+
+    const tick = (): void => {
+      ticking = false;
+      current.x += (target.x - current.x) * 0.07;
+      current.y += (target.y - current.y) * 0.07;
+      applyParallax();
+      if (needsTick()) scheduleTick();
+    };
+
+    const scheduleTick = (): void => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(tick);
+    };
+
+    const markActive = (): void => {
+      viewportBg.classList.remove("is-grid-idle");
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => viewportBg.classList.add("is-grid-idle"), 2200);
+    };
+
+    const onMove = (e: MouseEvent): void => {
+      if (dormant) return;
+      target.x = e.clientX / window.innerWidth - 0.5;
+      target.y = e.clientY / window.innerHeight - 0.5;
+      markActive();
+      scheduleTick();
+    };
+
+    this.setGridParallaxDormant = (next: boolean): void => {
+      if (dormant === next) return;
+      dormant = next;
+      viewportBg.classList.toggle("is-grid-dormant", next);
+      if (next) {
+        target.x = 0;
+        target.y = 0;
+        viewportBg.classList.add("is-grid-idle");
+        if (idleTimer) clearTimeout(idleTimer);
+        scheduleTick();
+      }
+    };
+
+    window.addEventListener("mousemove", onMove, { passive: true });
+    viewportBg.classList.add("is-grid-idle");
   }
 
   private applyUi(): void {
@@ -327,6 +523,15 @@ export class App {
     this.els.settingsTitle.textContent = this.ui.settings;
     this.els.languageLabel.textContent = this.ui.language;
     this.els.appearanceLabel.textContent = this.ui.appearance;
+    this.els.aboutLabel.textContent = this.ui.settings_about;
+    this.els.resourcesLabel.textContent = this.ui.settings_resources;
+    this.els.checkUpdatesLabel.textContent = this.ui.check_for_updates;
+    this.els.downloadUpdateLabel.textContent = this.ui.download_update;
+    this.els.linkGithub.textContent = this.ui.view_on_github;
+    this.els.linkReleases.textContent = this.ui.view_release_notes;
+    this.els.linkIssues.textContent = this.ui.report_issue;
+    this.els.linkLicense.textContent = this.ui.license_mit;
+    this.paintAboutSection();
     this.els.toolZoomOut.title = this.ui.tool_zoom_out;
     this.els.toolZoomOut.setAttribute("aria-label", this.ui.tool_zoom_out);
     this.els.toolZoomIn.title = this.ui.tool_zoom_in;
@@ -627,6 +832,11 @@ export class App {
         return;
       }
       this.folderPath = dir;
+      try {
+        this.registerLibraryRoot(await normalizeModelPath(dir));
+      } catch {
+        this.registerLibraryRoot(dir);
+      }
       const pathsBefore = new Set(this.models.map((m) => m.path));
       const previousActive = this.activePath;
       let skipped = 0;
@@ -657,6 +867,37 @@ export class App {
       this.status = err instanceof Error ? err.message : String(err);
       this.paint();
     }
+  }
+
+  private registerLibraryRoot(dir: string): void {
+    const normalized = dir.replace(/\\/g, "/").replace(/\/$/, "");
+    if (!this.libraryRoots.includes(normalized)) {
+      this.libraryRoots.push(normalized);
+    }
+  }
+
+  private toggleFolderCollapsed(folderKey: string): void {
+    if (this.collapsedFolders.has(folderKey)) {
+      this.collapsedFolders.delete(folderKey);
+    } else {
+      this.collapsedFolders.add(folderKey);
+    }
+
+    const folder = this.els.sidebarBody.querySelector<HTMLElement>(
+      `.lib-folder[data-folder-key="${CSS.escape(folderKey)}"]`,
+    );
+    if (!folder) {
+      this.paintSidebar();
+      return;
+    }
+
+    const collapsed = this.collapsedFolders.has(folderKey);
+    const toggle = folder.querySelector<HTMLElement>("[data-action=toggle-folder]");
+    const children = folder.querySelector<HTMLElement>(".lib-folder-children");
+    const chevron = folder.querySelector<HTMLElement>(".lib-folder-chevron");
+    toggle?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    children?.classList.toggle("is-collapsed", collapsed);
+    if (chevron) chevron.textContent = collapsed ? "chevron_right" : "expand_more";
   }
 
   /** Add or update a library entry. Returns false when the list is full and this is a new path. */
@@ -693,8 +934,140 @@ export class App {
     }, 4500);
   }
 
+  private formatVersionLine(): string {
+    const info = this.appMeta();
+    const version = info.version ? `v${info.version}` : "…";
+    const date = formatAppDate(info.build_date, this.ui.locale);
+    return date ? `${version} · ${date}` : version;
+  }
+
+  private paintAboutSection(): void {
+    const info = this.appMeta();
+    this.els.aboutName.textContent = this.ui.app_name;
+    this.els.aboutTagline.textContent = this.ui.tagline;
+    this.els.aboutDesc.textContent = this.ui.about_description;
+    this.els.aboutVersion.textContent = this.formatVersionLine();
+    this.els.aboutMeta.textContent = `${info.copyright} · ${info.license}`;
+
+    const checkBtn = this.els.checkUpdatesBtn as HTMLButtonElement | null;
+    const checkIcon = this.els.checkUpdatesIcon;
+    const checkLabel = this.els.checkUpdatesLabel;
+    const downloadBtn = this.els.downloadUpdateBtn as HTMLButtonElement | null;
+    const hintEl = this.els.updateStatus;
+    const hintIcon = this.els.updateStatusIcon;
+    const hintText = this.els.updateStatusText;
+    if (!checkBtn || !checkIcon || !checkLabel || !downloadBtn || !hintEl || !hintIcon || !hintText) {
+      return;
+    }
+
+    const checking = this.updateState === "checking";
+    checkLabel.textContent = checking ? this.ui.update_checking : this.ui.check_for_updates;
+    checkIcon.classList.toggle("hidden", checking);
+    checkBtn.disabled = checking;
+    checkBtn.classList.toggle("is-loading", checking);
+    downloadBtn.classList.toggle("hidden", this.updateState !== "available");
+
+    const showHint =
+      this.updateState === "uptodate" ||
+      this.updateState === "available" ||
+      this.updateState === "error";
+    hintEl.classList.toggle("hidden", !showHint);
+    hintEl.classList.remove("is-success", "is-info", "is-error");
+    if (!showHint) {
+      hintIcon.textContent = "";
+      hintText.textContent = "";
+      return;
+    }
+
+    switch (this.updateState) {
+      case "uptodate":
+        hintEl.classList.add("is-success");
+        hintIcon.textContent = "check_circle";
+        hintText.textContent = this.ui.update_up_to_date;
+        break;
+      case "available":
+        hintEl.classList.add("is-info");
+        hintIcon.textContent = "system_update";
+        hintText.textContent = this.ui.update_available.replace(
+          "{version}",
+          this.updateResult?.latest_version ?? "",
+        );
+        break;
+      case "error":
+        hintEl.classList.add("is-error");
+        hintIcon.textContent = "error_outline";
+        hintText.textContent = this.ui.update_check_failed;
+        break;
+      default:
+        hintIcon.textContent = "";
+        hintText.textContent = "";
+        break;
+    }
+  }
+
+  private async handleCheckUpdates(fromMenu: boolean): Promise<void> {
+    if (this.updateState === "checking") return;
+    this.updateState = "checking";
+    this.paintAboutSection();
+    try {
+      const result = await checkForUpdates();
+      this.updateResult = result;
+      this.updateState = result.update_available ? "available" : "uptodate";
+      if (fromMenu) {
+        this.showToast(
+          result.update_available
+            ? this.ui.update_available.replace("{version}", result.latest_version ?? "")
+            : this.ui.update_up_to_date,
+        );
+      }
+    } catch {
+      this.updateState = "error";
+      this.showToast(this.ui.update_check_failed);
+    } finally {
+      this.paintAboutSection();
+    }
+  }
+
+  private async openExternal(url: string | null | undefined): Promise<void> {
+    if (!url) {
+      this.showToast(this.ui.open_link_failed);
+      return;
+    }
+    try {
+      await openExternalUrl(url);
+    } catch {
+      this.showToast(this.ui.open_link_failed);
+    }
+  }
+
+  private openRepository(): Promise<void> {
+    const info = this.appMeta();
+    return this.openExternal(info.repository || info.homepage);
+  }
+
+  private openReleaseNotes(): Promise<void> {
+    return this.openExternal(this.appMeta().releases_url);
+  }
+
+  private openIssueTracker(): Promise<void> {
+    return this.openExternal(this.appMeta().issues_url);
+  }
+
+  private openLicense(): Promise<void> {
+    const repo = this.appMeta().repository;
+    return this.openExternal(repo ? `${repo}/blob/main/LICENSE` : null);
+  }
+
+  private openUpdateDownload(): Promise<void> {
+    const url =
+      this.updateResult?.download_url ??
+      this.updateResult?.release_page ??
+      this.appMeta().releases_url;
+    return this.openExternal(url);
+  }
+
   private modelListKey(): string {
-    return this.models.map((m) => `${m.path}\0${m.name}\0${m.file_size}`).join("\n");
+    return libraryTreeListKey(this.models, this.libraryRoots);
   }
 
   private modelEntryFromPath(path: string): ModelListEntry | null {
@@ -838,6 +1211,9 @@ export class App {
     const switching = this.phase === "loading" && this.summary !== null;
 
     this.els.settingsBackdrop.classList.toggle("hidden", !this.settingsOpen);
+    if (this.settingsOpen) {
+      this.paintAboutSection();
+    }
     this.els.clearConfirmPop.classList.toggle("hidden", !this.clearConfirmOpen);
     this.els.clearLibrary.classList.toggle("is-active", this.clearConfirmOpen);
     if (this.clearConfirmOpen) {
@@ -846,6 +1222,9 @@ export class App {
       this.els.clearConfirmOk.textContent = this.ui.clear_library;
     }
     this.els.viewportMain.classList.toggle("is-interactive", interactive);
+    this.setGridParallaxDormant?.(
+      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null),
+    );
     this.els.overlay.classList.toggle("is-visible", overlayVisible);
     this.els.overlay.classList.toggle("is-empty", this.phase === "empty");
     this.els.overlay.classList.toggle("is-loading", this.phase === "loading");
@@ -964,6 +1343,8 @@ export class App {
     this.models = [];
     this.summaryCache.clear();
     this.cameraByPath.clear();
+    this.libraryRoots = [];
+    this.collapsedFolders.clear();
     this.unloadScene();
   }
 
@@ -972,6 +1353,8 @@ export class App {
     this.activePath = null;
     this.summary = null;
     this.folderPath = null;
+    this.libraryRoots = [];
+    this.collapsedFolders.clear();
     this.phase = "empty";
     this.status = "";
     this.cinemaMode = false;
@@ -1060,36 +1443,13 @@ export class App {
   }
 
   private sidebarHtml(ui: UiBundle): string {
-    if (this.models.length === 0) {
-      return `
-        <div class="rail-empty">
-          <div class="rail-empty-icon" aria-hidden="true">
-            <span class="material-symbols-outlined">inventory_2</span>
-          </div>
-          <p>${escapeHtml(ui.sidebar_empty)}</p>
-        </div>`;
-    }
-    return this.models
-      .map((m) => {
-        const active = m.path === this.activePath;
-        const fmt = formatModelFormat(m.format, ui);
-        const pillClass = m.format.toLowerCase() === "glb" ? "format-pill is-glb" : "format-pill";
-        const sub = m.file_size ? formatBytes(m.file_size, ui) : "";
-        return `
-        <div class="model-row ${active ? "active" : ""}">
-          <button type="button" class="model-row-main" data-action="select-model" data-model-path="${escapeAttr(m.path)}">
-            <span class="${pillClass}">${escapeHtml(fmt)}</span>
-            <span class="model-row-body">
-              <span class="model-row-title">${escapeHtml(m.name)}</span>
-              ${sub ? `<span class="model-row-sub">${escapeHtml(sub)}</span>` : ""}
-            </span>
-          </button>
-          <button type="button" class="model-row-remove" data-action="remove-model" data-model-path="${escapeAttr(m.path)}" aria-label="${escapeAttr(ui.remove_model)}">
-            <span class="material-symbols-outlined">close</span>
-          </button>
-        </div>`;
-      })
-      .join("");
+    return renderLibraryTree({
+      models: this.models,
+      roots: this.libraryRoots,
+      activePath: this.activePath,
+      collapsedFolders: this.collapsedFolders,
+      ui,
+    });
   }
 
   private overlayHtml(ui: UiBundle): string {
@@ -1203,7 +1563,12 @@ function escapeAttr(text: string): string {
 
 const SHELL_HTML = `
   <div class="viewport-bg" aria-hidden="true">
-    <div class="perspective-grid"></div>
+    <div class="perspective-scene">
+      <div class="perspective-grid perspective-grid--far"></div>
+      <div class="perspective-grid perspective-grid--near"></div>
+      <div class="perspective-horizon"></div>
+    </div>
+    <div class="perspective-glow"></div>
   </div>
 
   <main class="viewport">
@@ -1298,14 +1663,14 @@ const SHELL_HTML = `
   <div class="app-toast glass-capsule" data-bind="toast" role="status" aria-live="polite"></div>
 
   <div class="settings-backdrop hidden" data-bind="settings">
-    <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+    <div class="settings-panel glass-capsule" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
       <header class="settings-header">
         <h2 id="settings-heading" data-bind="settings-title"></h2>
         <button type="button" class="settings-close" data-action="close-settings" aria-label="">
           <span class="material-symbols-outlined">close</span>
         </button>
       </header>
-      <div class="settings-body">
+      <div class="settings-body scroll-subtle">
         <div class="settings-section">
           <label data-bind="language-label"></label>
           <div class="segmented" data-bind="locale-group"></div>
@@ -1313,6 +1678,52 @@ const SHELL_HTML = `
         <div class="settings-section">
           <label data-bind="appearance-label"></label>
           <div class="segmented" data-bind="theme-group"></div>
+        </div>
+        <div class="settings-divider" aria-hidden="true"></div>
+        <div class="settings-section">
+          <label data-bind="about-label"></label>
+          <div class="settings-about">
+            <p class="settings-about-name" data-bind="about-name"></p>
+            <div class="settings-about-version-row">
+              <span class="settings-about-version" data-bind="about-version"></span>
+              <button type="button" class="settings-about-inline-action settings-about-inline-btn" data-action="check-updates">
+                <span class="material-symbols-outlined settings-about-action-icon" data-bind="check-updates-icon" aria-hidden="true">refresh</span>
+                <span class="settings-about-action-label" data-bind="check-updates-label"></span>
+              </button>
+              <button type="button" class="settings-about-inline-action settings-about-inline-action-primary settings-about-inline-btn hidden" data-action="download-update">
+                <span class="material-symbols-outlined settings-about-action-icon" aria-hidden="true">download</span>
+                <span class="settings-about-action-label" data-bind="download-update-label"></span>
+              </button>
+            </div>
+            <p class="settings-about-hint settings-about-status hidden" data-bind="update-status">
+              <span class="material-symbols-outlined settings-about-status-icon" data-bind="update-status-icon" aria-hidden="true"></span>
+              <span class="settings-about-status-text" data-bind="update-status-text"></span>
+            </p>
+            <p class="settings-about-tagline" data-bind="about-tagline"></p>
+            <p class="settings-about-desc" data-bind="about-desc"></p>
+            <p class="settings-about-meta" data-bind="about-meta"></p>
+          </div>
+        </div>
+        <div class="settings-section">
+          <label data-bind="resources-label"></label>
+          <div class="settings-links">
+            <button type="button" class="settings-link" data-action="open-github">
+              <span class="material-symbols-outlined" aria-hidden="true">code</span>
+              <span data-bind="link-github"></span>
+            </button>
+            <button type="button" class="settings-link" data-action="open-releases">
+              <span class="material-symbols-outlined" aria-hidden="true">new_releases</span>
+              <span data-bind="link-releases"></span>
+            </button>
+            <button type="button" class="settings-link" data-action="open-issues">
+              <span class="material-symbols-outlined" aria-hidden="true">bug_report</span>
+              <span data-bind="link-issues"></span>
+            </button>
+            <button type="button" class="settings-link" data-action="open-license">
+              <span class="material-symbols-outlined" aria-hidden="true">gavel</span>
+              <span data-bind="link-license"></span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,9 +1,11 @@
 [package]
 name = "trivor"
-description = "Trivor (极视) — fast native 3D model viewer for macOS"
+description = "Trivor (极视) — a lightweight 3D model viewer for macOS"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
 
 [lib]
@@ -19,6 +21,8 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tauri = { version = "2", features = ["protocol-asset", "http-range"] }
+tauri-plugin-opener = "2"
+ureq = { version = "2", features = ["json"] }
 rfd.workspace = true
 dark-light = "2"
 window-vibrancy = "0.6"
