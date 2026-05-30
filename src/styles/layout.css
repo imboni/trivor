@@ -18,22 +18,56 @@
   overflow: hidden;
   background: linear-gradient(to bottom, var(--viewport-bg-top), var(--viewport-bg));
   pointer-events: none;
+  transition: background 520ms var(--ease);
+}
+
+.shell.is-model-preview .viewport-bg {
+  background:
+    radial-gradient(ellipse 72% 38% at 50% 88%, var(--studio-floor-glow), transparent 72%),
+    radial-gradient(ellipse 95% 62% at 50% 78%, var(--studio-floor-base), transparent 68%),
+    radial-gradient(ellipse 110% 85% at 50% 18%, var(--studio-ceiling), var(--studio-bg));
+}
+
+.shell.is-model-preview .viewport-bg::after {
+  opacity: 0;
+}
+
+.viewport-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    var(--viewport-bg-top) 0%,
+    color-mix(in srgb, var(--viewport-bg-top) 40%, transparent) 26%,
+    transparent 48%
+  );
 }
 
 .perspective-scene {
   position: absolute;
-  inset: -25%;
-  perspective: 820px;
-  perspective-origin: 50% 42%;
+  inset: 0;
+  perspective: 720px;
+  perspective-origin: 50% 32%;
   transform-style: preserve-3d;
+  overflow: hidden;
+  transition: opacity 420ms var(--ease), visibility 420ms var(--ease);
+}
+
+.shell.is-model-preview .perspective-scene,
+.shell.is-model-preview .perspective-glow {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .perspective-grid {
   position: absolute;
   left: -50%;
   width: 200%;
-  height: 260%;
-  top: 8%;
+  height: 220%;
+  top: 0;
   transform-style: preserve-3d;
   transform-origin: 50% 0%;
   will-change: transform;
@@ -42,45 +76,18 @@
     linear-gradient(to bottom, var(--viewport-grid-major) 1px, transparent 1px),
     linear-gradient(to right, var(--viewport-grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--viewport-grid) 1px, transparent 1px);
-  background-size: 240px 240px, 240px 240px, 48px 48px, 48px 48px;
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(0, 0, 0, 0.35) 12%,
-    black 28%,
-    black 72%,
-    transparent 100%
-  );
+  background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
 }
 
 .perspective-grid--near {
-  opacity: 0.95;
-  transform: rotateX(68deg) translate3d(0, -168px, 0);
+  opacity: 1;
+  transform: rotateX(61deg) translate3d(0, -150px, 0);
 }
 
 .perspective-grid--far {
-  opacity: 0.42;
-  background-size: 320px 320px, 320px 320px, 64px 64px, 64px 64px;
-  transform: rotateX(68.6deg) translate3d(0, -168px, -90px);
-}
-
-.perspective-horizon {
-  position: absolute;
-  left: -30%;
-  right: -30%;
-  top: 33%;
-  height: 1px;
-  transform-origin: center;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--accent) 40%, transparent),
-    transparent
-  );
-  box-shadow: 0 0 28px color-mix(in srgb, var(--accent-glow) 45%, transparent);
-  opacity: 0.6;
-  pointer-events: none;
-  will-change: transform;
+  opacity: 0.5;
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  transform: rotateX(61deg) translate3d(0, -150px, -70px);
 }
 
 .perspective-glow {
@@ -88,7 +95,7 @@
   inset: 0;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 36% 28% at var(--grid-glow-x, 50%) var(--grid-glow-y, 68%),
+    ellipse 38% 32% at var(--grid-glow-x, 50%) var(--grid-glow-y, 72%),
     color-mix(in srgb, var(--accent-glow) 55%, transparent),
     transparent 72%
   );
@@ -106,6 +113,10 @@
 }
 
 .viewport-bg.is-grid-dormant .perspective-glow {
+  opacity: 0 !important;
+}
+
+.shell.is-model-preview .viewport-bg.is-grid-dormant .perspective-scene {
   opacity: 0 !important;
 }
 
@@ -132,6 +143,11 @@
   z-index: 1;
   pointer-events: none;
   background: var(--viewport-vignette);
+  transition: background 520ms var(--ease);
+}
+
+.shell.is-model-preview .viewport::after {
+  background: var(--viewport-vignette-preview);
 }
 
 .viewport-host {
@@ -147,6 +163,11 @@
   width: 100%;
   height: 100%;
   --poster-color: transparent;
+  transition: filter 520ms var(--ease);
+}
+
+.shell.is-model-preview .viewport-host model-viewer {
+  filter: contrast(1.02) saturate(1.04);
 }
 
 .viewport.is-interactive .viewport-host {
@@ -155,6 +176,73 @@
 
 .viewport.is-interactive .viewport-host:active {
   cursor: grabbing;
+}
+
+.axis-widget {
+  position: absolute;
+  right: var(--shell-pad);
+  bottom: var(--shell-pad);
+  z-index: 3;
+  width: var(--axis-widget-size);
+  height: var(--axis-widget-size);
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--scene-widget-bg);
+  border: 1px solid var(--scene-widget-border);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  translate: 0 8px;
+  transition:
+    opacity var(--motion-slow) var(--ease),
+    visibility var(--motion-slow) var(--ease),
+    translate var(--motion-slow) var(--ease-spring),
+    bottom var(--motion-slow) var(--ease);
+}
+
+.axis-widget.is-visible {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+}
+
+.shell.is-cinema .axis-widget {
+  bottom: calc(var(--shell-pad) + var(--cinema-controls-h) + var(--chrome-gap));
+}
+
+.shell.is-cinema.is-cinema-chrome-idle .axis-widget {
+  bottom: var(--shell-pad);
+}
+
+.axis-widget-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.axis-widget-ring {
+  stroke: var(--scene-widget-border);
+  stroke-width: 1;
+  opacity: 0.75;
+}
+
+.axis-widget-hub {
+  fill: var(--text-subtle);
+  opacity: 0.8;
+}
+
+.axis-widget-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  user-select: none;
 }
 
 /* —— Explorer rail (left capsule) —— */
@@ -213,7 +301,7 @@
 }
 
 .rail-primary-btn:hover {
-  transform: scale(1.05);
+  scale: 1.05;
 }
 
 .rail-primary-btn .material-symbols-outlined {
@@ -537,7 +625,7 @@
   z-index: 55;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--cinema-ctrl-gap);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -555,12 +643,55 @@
   translate: 0 0;
 }
 
+.shell.is-cinema .cinema-controls.is-chrome-idle {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  translate: 0 10px;
+}
+
+.shell.is-cinema.is-cinema-chrome-idle {
+  cursor: none;
+}
+
+html.is-cinema-cursor-hidden,
+html.is-cinema-cursor-hidden body,
+html.is-cinema-cursor-hidden #app,
+html.is-cinema-cursor-hidden .shell,
+html.is-cinema-cursor-hidden .viewport,
+html.is-cinema-cursor-hidden .viewport-host,
+html.is-cinema-cursor-hidden model-viewer {
+  cursor: none !important;
+}
+
+.shell.is-cinema.is-cinema-chrome-idle .viewport.is-interactive .viewport-host,
+.shell.is-cinema.is-cinema-chrome-idle .viewport.is-interactive .viewport-host:active {
+  cursor: none !important;
+}
+
+.shell.is-cinema.is-cinema-chrome-idle .cinema-controls:not(.is-chrome-idle) {
+  cursor: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell.is-cinema .cinema-controls.is-chrome-idle {
+    opacity: 0.35;
+    visibility: visible;
+    pointer-events: auto;
+    translate: 0 0;
+  }
+
+  .shell.is-cinema.is-cinema-chrome-idle {
+    cursor: none;
+  }
+}
+
 .cinema-ctrl {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: var(--cinema-ctrl-size);
+  height: var(--cinema-ctrl-size);
   border-radius: var(--radius-full);
   color: var(--text);
 }
@@ -577,7 +708,6 @@
   position: absolute;
   right: var(--shell-pad);
   top: 50%;
-  transform: translateY(-50%);
   z-index: 46;
   display: inline-flex;
   align-items: center;
@@ -590,18 +720,19 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  translate: 8px 0;
+  translate: 8px -50%;
   transition:
     opacity var(--motion-slow) var(--ease),
     visibility var(--motion-slow) var(--ease),
-    translate var(--motion-slow) var(--ease);
+    translate var(--motion-slow) var(--ease),
+    scale var(--motion-fast) var(--ease);
 }
 
 .panel-expand-tab.is-visible {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  translate: 0 0;
+  translate: 0 -50%;
 }
 
 .panel-expand-tab:hover {

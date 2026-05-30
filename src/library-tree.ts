@@ -192,7 +192,7 @@ function renderFolder(
     .join("");
 
   return `
-    <div class="lib-folder" data-folder-key="${escapeAttr(folder.key)}">
+    <div class="lib-folder${collapsed ? " is-collapsed" : ""}" data-folder-key="${escapeAttr(folder.key)}">
       <div class="lib-folder-head" style="--depth:${depth}">
         <button
           type="button"
@@ -202,7 +202,7 @@ function renderFolder(
           aria-expanded="${collapsed ? "false" : "true"}"
           title="${escapeAttr(folder.pathLabel)}"
         >
-          <span class="material-symbols-outlined lib-folder-chevron" aria-hidden="true">${collapsed ? "chevron_right" : "expand_more"}</span>
+          <span class="material-symbols-outlined lib-folder-chevron" aria-hidden="true">expand_more</span>
           <span class="material-symbols-outlined lib-folder-icon" aria-hidden="true">folder</span>
           <span class="lib-folder-name">${escapeHtml(folder.name)}</span>
           <span class="lib-folder-count">${count}</span>
@@ -218,8 +218,10 @@ function renderFolder(
           <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
         </button>
       </div>
-      <div class="lib-folder-children${collapsed ? " is-collapsed" : ""}">
-        ${childrenHtml}
+      <div class="lib-folder-children">
+        <div class="lib-folder-children-inner">
+          ${childrenHtml}
+        </div>
       </div>
     </div>`;
 }

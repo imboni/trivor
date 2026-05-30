@@ -44,12 +44,13 @@ export function initTheme(bundle: UiBundle): void {
 
 let systemListener: (() => void) | null = null;
 
-export function watchSystemTheme(getPref: () => ThemePref): void {
+export function watchSystemTheme(getPref: () => ThemePref, onResolvedChange?: () => void): void {
   systemListener?.();
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   const handler = () => {
     if (getPref() !== "system") return;
     applyTheme(mq.matches ? "dark" : "light");
+    onResolvedChange?.();
   };
   mq.addEventListener("change", handler);
   systemListener = () => mq.removeEventListener("change", handler);

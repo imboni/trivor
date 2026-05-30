@@ -34,6 +34,10 @@
   );
   --scrollbar-size: 4px;
   --bottom-dock-outer-h: 60px;
+  --axis-widget-size: 68px;
+  --cinema-ctrl-size: 44px;
+  --cinema-ctrl-gap: 10px;
+  --cinema-controls-h: calc(var(--cinema-ctrl-size) * 2 + var(--cinema-ctrl-gap));
   --chrome-gap: 12px;
   --rail-outer-w: 64px;
 }
@@ -78,14 +82,38 @@
 
   --viewport-bg-top: #0d0e11;
   --viewport-bg: #121316;
-  --viewport-grid: rgba(176, 198, 255, 0.05);
-  --viewport-grid-major: rgba(176, 198, 255, 0.1);
+  --viewport-grid: rgba(176, 198, 255, 0.11);
+  --viewport-grid-major: rgba(176, 198, 255, 0.2);
   --viewport-vignette: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 35%, rgba(0, 0, 0, 0.5) 100%);
+  --viewport-vignette-preview: radial-gradient(ellipse 78% 70% at 50% 44%, transparent 48%, rgba(0, 0, 0, 0.38) 100%);
+  --studio-bg: #0b0c10;
+  --studio-ceiling: #151820;
+  --studio-floor-glow: rgba(176, 198, 255, 0.09);
+  --studio-floor-base: rgba(255, 255, 255, 0.025);
   --viewport-overlay: rgba(13, 14, 17, 0.72);
   --backdrop: rgba(0, 0, 0, 0.55);
   --hero-glow: rgba(176, 198, 255, 0.12);
   --scrollbar-thumb: rgba(140, 144, 161, 0.35);
   --scrollbar-thumb-hover: rgba(140, 144, 161, 0.55);
+
+  --scene-grid-line: #8ca0bd;
+  --scene-grid-major: #aebfd8;
+  --scene-grid-opacity: 0.5;
+  --scene-grid-fine: 0.22;
+  --scene-grid-minor: 0.38;
+  --scene-grid-major-weight: 0.62;
+  --scene-axis-x: #e07085;
+  --scene-axis-y: #52c46e;
+  --scene-axis-z: #5498eb;
+  --scene-origin: #e3e2e6;
+  --scene-overlay-axis-shaft: 0.44;
+  --scene-overlay-axis-head: 0.54;
+  --scene-overlay-origin-core: 0.48;
+  --scene-overlay-origin-ring: 0.24;
+  --scene-widget-bg: rgba(31, 31, 35, 0.62);
+  --scene-widget-border: rgba(255, 255, 255, 0.1);
+  --axis-widget-front: 0.88;
+  --axis-widget-back: 0.36;
 }
 
 :root[data-theme="light"] {
@@ -128,14 +156,38 @@
 
   --viewport-bg-top: #dce3f0;
   --viewport-bg: #e8ebf2;
-  --viewport-grid: rgba(0, 88, 203, 0.06);
-  --viewport-grid-major: rgba(0, 88, 203, 0.12);
+  --viewport-grid: rgba(0, 88, 203, 0.12);
+  --viewport-grid-major: rgba(0, 88, 203, 0.22);
   --viewport-vignette: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 40%, rgba(200, 210, 225, 0.45) 100%);
+  --viewport-vignette-preview: radial-gradient(ellipse 78% 70% at 50% 44%, transparent 52%, rgba(168, 178, 198, 0.28) 100%);
+  --studio-bg: #e8ebf2;
+  --studio-ceiling: #f6f8fc;
+  --studio-floor-glow: rgba(0, 88, 203, 0.06);
+  --studio-floor-base: rgba(255, 255, 255, 0.55);
   --viewport-overlay: rgba(232, 235, 242, 0.78);
   --backdrop: rgba(16, 28, 52, 0.32);
   --hero-glow: rgba(0, 88, 203, 0.1);
   --scrollbar-thumb: rgba(107, 112, 128, 0.32);
   --scrollbar-thumb-hover: rgba(107, 112, 128, 0.5);
+
+  --scene-grid-line: #7a8fad;
+  --scene-grid-major: #5a6f92;
+  --scene-grid-opacity: 0.44;
+  --scene-grid-fine: 0.16;
+  --scene-grid-minor: 0.3;
+  --scene-grid-major-weight: 0.54;
+  --scene-axis-x: #c93455;
+  --scene-axis-y: #248a3d;
+  --scene-axis-z: #0058cb;
+  --scene-origin: #424655;
+  --scene-overlay-axis-shaft: 0.5;
+  --scene-overlay-axis-head: 0.6;
+  --scene-overlay-origin-core: 0.52;
+  --scene-overlay-origin-ring: 0.28;
+  --scene-widget-bg: rgba(255, 255, 255, 0.72);
+  --scene-widget-border: rgba(12, 24, 48, 0.1);
+  --axis-widget-front: 0.92;
+  --axis-widget-back: 0.4;
 }
 
 * {
@@ -172,6 +224,8 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .material-symbols-outlined {
@@ -205,11 +259,12 @@ button {
     border-color var(--motion-fast) var(--ease),
     color var(--motion-fast) var(--ease),
     transform var(--motion-fast) var(--ease),
+    scale var(--motion-fast) var(--ease),
     box-shadow var(--motion-fast) var(--ease);
 }
 
 button:active:not(:disabled) {
-  transform: scale(0.92);
+  scale: 0.94;
 }
 
 button:focus-visible {
@@ -252,6 +307,17 @@ button:focus-visible {
 
 .scroll-subtle::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+/* Copy-friendly islands inside the non-selectable shell */
+input,
+textarea,
+.select-text,
+.error-message,
+.inspector-title,
+.inspector-body .detail-content {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 @media (prefers-reduced-motion: reduce) {

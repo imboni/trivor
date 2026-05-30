@@ -1,5 +1,7 @@
 import "@google/model-viewer";
 
+import { syncSceneGuides as applySceneGuidesToModel, type SceneGuideSyncOptions } from "./scene-guides";
+
 interface SphericalPosition {
   theta: number;
   phi: number;
@@ -29,6 +31,8 @@ interface ModelViewerElement extends HTMLElement {
   readonly turntableRotation: number;
   resetTurntableRotation(theta?: number): void;
   jumpCameraToGoal(): void;
+  getBoundingBoxCenter(): { x: number; y: number; z: number };
+  getDimensions(): { x: number; y: number; z: number };
 }
 
 /** ~12% radius change per toolbar click. */
@@ -42,6 +46,33 @@ const ZOOM_SENSITIVITY = "0.82";
 /** Degrees per second; model-viewer default feels fast in cinema mode. */
 const AUTO_ROTATE_SPEED = "6deg";
 const AUTO_ROTATE_DELAY_MS = 0;
+
+const PRESENTATION = {
+  shadowIntensity: "1.24",
+  shadowSoftness: "0.68",
+  exposure: "1.08",
+  environmentImage: "neutral",
+} as const;
+
+const DEFAULT_SCENE = {
+  shadowIntensity: "1",
+  shadowSoftness: "1",
+  exposure: "1",
+  environmentImage: "neutral",
+} as const;
+
+function applyScenePresentation(mv: ModelViewerElement, enabled: boolean): void {
+  const scene = enabled ? PRESENTATION : DEFAULT_SCENE;
+  mv.setAttribute("shadow-intensity", scene.shadowIntensity);
+  mv.setAttribute("shadow-softness", scene.shadowSoftness);
+  mv.setAttribute("exposure", scene.exposure);
+  mv.setAttribute("environment-image", scene.environmentImage);
+  if (enabled) {
+    mv.setAttribute("tone-mapping", "aces");
+  } else {
+    mv.removeAttribute("tone-mapping");
+  }
+}
 
 export interface SavedCamera {
   targetX: number;
@@ -203,6 +234,8 @@ export class ModelViewport {
   private savedCamera: SavedCamera | null = null;
   private loadGen = 0;
   private loadAbort?: AbortController;
+  private cursorHidden = false;
+  private presentationMode = false;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -235,11 +268,58 @@ export class ModelViewport {
     this.host.focus();
   }
 
+  /** Exhibition-style lighting and ground shadow when previewing a model. */
+  setPresentationMode(enabled: boolean): void {
+    if (this.presentationMode === enabled) return;
+    this.presentationMode = enabled;
+    applyScenePresentation(this.mv, enabled);
+  }
+
+  /** Optional grid floor, center marker, and XYZ axes in model space. */
+  syncSceneGuides(opts: SceneGuideSyncOptions): void {
+    applySceneGuidesToModel(this.mv, opts);
+  }
+
+  /** Hide OS cursor over the viewer (cinema idle); pierces model-viewer shadow DOM. */
+  setCursorHidden(hidden: boolean): void {
+    this.cursorHidden = hidden;
+    this.applyCursorHidden();
+    if (hidden && !this.mv.shadowRoot) {
+      void customElements.whenDefined("model-viewer").then(() => {
+        if (this.cursorHidden) this.applyCursorHidden();
+      });
+    }
+  }
+
+  private applyCursorHidden(): void {
+    const hidden = this.cursorHidden;
+    const cursor = hidden ? "none" : "";
+    this.host.style.cursor = cursor;
+    this.mv.style.cursor = cursor;
+
+    const root = this.mv.shadowRoot;
+    if (!root) return;
+
+    const styleId = "trivor-cursor-hide";
+    const existing = root.getElementById(styleId);
+    if (hidden) {
+      if (existing) return;
+      const style = document.createElement("style");
+      style.id = styleId;
+      style.textContent =
+        ":host, canvas, .userInput, .container, slot { cursor: none !important; }";
+      root.appendChild(style);
+      return;
+    }
+    existing?.remove();
+  }
+
   /** Fresh element — only way to fully drop the previous model's camera in WKWebView. */
   private replaceViewerElement(): void {
     this.mv.remove();
     this.mv = createModelViewerElement();
     this.host.appendChild(this.mv);
+    this.applyCursorHidden();
   }
 
   async load(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<void> {
@@ -274,6 +354,7 @@ export class ModelViewport {
       }
       if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
       this.captureInitialCamera();
+      this.setPresentationMode(true);
     };
 
     try {
@@ -328,6 +409,7 @@ export class ModelViewport {
     this.loadAbort = undefined;
     this.loadGen++;
     this.savedCamera = null;
+    this.presentationMode = false;
     this.replaceViewerElement();
   }
 

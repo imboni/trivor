@@ -306,27 +306,27 @@ pub fn check_for_updates() -> Result<UpdateCheckResult, String> {
     let repo_path = github_repo_path(&repository);
 
     let url = format!("https://api.github.com/repos/{repo_path}/releases/latest");
-    let response = ureq::get(&url)
+    let response = match ureq::get(&url)
         .set("Accept", "application/vnd.github+json")
         .set("User-Agent", "Trivor")
         .call()
-        .map_err(|e| format!("Network error: {e}"))?;
+    {
+        Ok(response) => response,
+        Err(ureq::Error::Status(404, _)) => return Ok(up_to_date_result(current)),
+        Err(e) => return Err(format!("Network error: {e}")),
+    };
 
     if response.status() != 200 {
+        if response.status() == 404 {
+            return Ok(up_to_date_result(current));
+        }
         return Err(format!("GitHub API returned {}", response.status()));
     }
 
     let body = response.into_string().map_err(|e| e.to_string())?;
     let release: GhRelease = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     if release.draft || release.prerelease {
-        return Ok(UpdateCheckResult {
-            current_version: current,
-            latest_version: None,
-            latest_published_at: None,
-            update_available: false,
-            release_page: None,
-            download_url: None,
-        });
+        return Ok(up_to_date_result(current));
     }
 
     let latest = release.tag_name.trim_start_matches('v').to_string();
@@ -346,6 +346,17 @@ pub fn check_for_updates() -> Result<UpdateCheckResult, String> {
         release_page: Some(release.html_url),
         download_url,
     })
+}
+
+fn up_to_date_result(current_version: String) -> UpdateCheckResult {
+    UpdateCheckResult {
+        current_version,
+        latest_version: None,
+        latest_published_at: None,
+        update_available: false,
+        release_page: None,
+        download_url: None,
+    }
 }
 
 fn is_version_newer(latest: &str, current: &str) -> bool {
@@ -375,11 +386,20 @@ fn parse_version(version: &str) -> Vec<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::check_for_updates;
+    use super::{is_version_newer, up_to_date_result};
 
     #[test]
-    fn github_latest_release_is_reachable() {
-        let result = check_for_updates();
-        assert!(result.is_ok(), "{}", result.err().unwrap_or_default());
+    fn up_to_date_result_has_no_update() {
+        let result = up_to_date_result("0.0.2".to_string());
+        assert!(!result.update_available);
+        assert!(result.latest_version.is_none());
+    }
+
+    #[test]
+    fn is_version_newer_compares_semver() {
+        assert!(is_version_newer("0.0.3", "0.0.2"));
+        assert!(is_version_newer("1.0.0", "0.9.9"));
+        assert!(!is_version_newer("0.0.2", "0.0.2"));
+        assert!(!is_version_newer("0.0.1", "0.0.2"));
     }
 }

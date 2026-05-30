@@ -33,6 +33,12 @@ import {
   rgbaCss,
 } from "./format";
 import { libraryTreeListKey, renderLibraryTree } from "./library-tree";
+import {
+  bindingFromEvent,
+  renderShortcutsSettings,
+  ShortcutStore,
+  type ShortcutId,
+} from "./shortcuts";
 
 /** Maximum models kept in the library list. */
 export const MAX_LIBRARY_MODELS = 100;
@@ -44,7 +50,11 @@ import {
   watchSystemTheme,
   type ThemePref,
 } from "./theme";
+import { AxisOrientationWidget } from "./axis-widget";
+import { invalidateSceneThemeCache } from "./scene-theme";
 import { flushUi } from "./ui";
+import { syncSceneGuides as applySceneGuidesToModel } from "./scene-guides";
+import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
 import { ModelViewport, type SavedCamera } from "./viewer";
 
 type LocalePref = "en" | "zh-Hans" | "system";
@@ -80,7 +90,9 @@ export class App {
   private cinemaMode = false;
   private cinemaRotatePaused = false;
   private cinemaIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  private cinemaChromeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly cinemaIdleMs = 3000;
+  private readonly cinemaChromeIdleMs = 2400;
 
   private folderPath: string | null = null;
   /** Folder roots added via “open folder”; drives the library tree. */
@@ -97,9 +109,13 @@ export class App {
   private appInfo: AppInfo | null = null;
   private updateState: "idle" | "checking" | "uptodate" | "available" | "error" = "idle";
   private updateResult: UpdateCheckResult | null = null;
+  private readonly shortcuts = new ShortcutStore();
+  private shortcutRecording: ShortcutId | null = null;
+  private readonly sceneOptions = new SceneOptionsStore();
 
   private readonly shell: HTMLElement;
   private readonly viewport: ModelViewport;
+  private readonly axisWidget: AxisOrientationWidget;
   private readonly els: Record<string, HTMLElement>;
 
   constructor(root: HTMLElement) {
@@ -119,14 +135,18 @@ export class App {
       explorerDrawer: pick("[data-bind=explorer-drawer]"),
       viewportMain: pick(".viewport"),
       viewportHost: pick(".viewport-host"),
+      axisWidget: pick("[data-bind=axis-widget]"),
       overlay: pick("[data-bind=overlay]"),
       viewportDock: pick("[data-bind=viewport-dock]"),
       toolZoomOut: pick("[data-action=zoom-out]"),
       toolZoomIn: pick("[data-action=zoom-in]"),
       toolResetView: pick("[data-action=reset-view]"),
       toolCinema: pick("[data-action=cinema-mode]"),
+      toolPreviewGrid: pick("[data-action=toggle-preview-grid]"),
+      toolSceneGuides: pick("[data-action=toggle-scene-guides]"),
       cinemaExit: pick("[data-action=exit-cinema]"),
       cinemaToggleRotate: pick("[data-action=cinema-toggle-rotate]"),
+      cinemaControls: pick(".cinema-controls"),
       expandInspector: pick("[data-action=expand-inspector]"),
       toggleLibrary: pick("[data-action=toggle-library]"),
       clearLibrary: pick("[data-action=clear-library]"),
@@ -144,6 +164,12 @@ export class App {
       localeGroup: pick("[data-bind=locale-group]"),
       appearanceLabel: pick("[data-bind=appearance-label]"),
       themeGroup: pick("[data-bind=theme-group]"),
+      shortcutsLabel: pick("[data-bind=shortcuts-label]"),
+      shortcutsResetAll: pick("[data-action=reset-shortcuts]"),
+      shortcutsResetAllLabel: pick("[data-bind=shortcuts-reset-all-label]"),
+      shortcutsList: pick("[data-bind=shortcuts-list]"),
+      sceneLabel: pick("[data-bind=scene-label]"),
+      sceneOptionsList: pick("[data-bind=scene-options-list]"),
       aboutLabel: pick("[data-bind=about-label]"),
       aboutName: pick("[data-bind=about-name]"),
       aboutVersion: pick("[data-bind=about-version]"),
@@ -166,7 +192,6 @@ export class App {
       perspectiveScene: pick(".perspective-scene"),
       perspectiveGridFar: pick(".perspective-grid--far"),
       perspectiveGridNear: pick(".perspective-grid--near"),
-      perspectiveHorizon: pick(".perspective-horizon"),
       perspectiveGlow: pick(".perspective-glow"),
       viewportBg: pick(".viewport-bg"),
       toast: pick("[data-bind=toast]"),
@@ -177,9 +202,11 @@ export class App {
     };
 
     this.viewport = new ModelViewport(this.els.viewportHost);
+    this.axisWidget = new AxisOrientationWidget(this.els.axisWidget, () => this.viewport.element);
     this.viewport.attachWheelSurface(this.els.viewportMain);
     this.bind();
     this.bindCinemaIdleResume();
+    this.bindCinemaChromeIdle();
     this.bindParallax();
   }
 
@@ -196,7 +223,7 @@ export class App {
       this.appInfo = fallbackAppInfo();
     }
     initTheme(bundle);
-    watchSystemTheme(() => this.ui.theme_pref as ThemePref);
+    watchSystemTheme(() => this.ui.theme_pref as ThemePref, () => this.onThemeResolved());
     this.applyUi();
     await onLoadProgress((p) => {
       if (this.phase !== "loading") return;
@@ -234,6 +261,28 @@ export class App {
     bind("open-releases", () => void this.openReleaseNotes());
     bind("open-issues", () => void this.openIssueTracker());
     bind("open-license", () => void this.openLicense());
+
+    this.els.shortcutsList.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      const edit = target.closest<HTMLElement>("[data-action=edit-shortcut]");
+      if (edit?.dataset.shortcutId) {
+        e.preventDefault();
+        this.startShortcutRecording(edit.dataset.shortcutId as ShortcutId);
+        return;
+      }
+      const restore = target.closest<HTMLElement>("[data-action=restore-shortcut]");
+      if (restore?.dataset.shortcutId) {
+        e.preventDefault();
+        this.shortcuts.reset(restore.dataset.shortcutId as ShortcutId);
+        this.shortcutRecording = null;
+        this.paintShortcutsSection();
+      }
+    });
+    bind("reset-shortcuts", () => {
+      this.shortcuts.resetAll();
+      this.shortcutRecording = null;
+      this.paintShortcutsSection();
+    });
   }
 
   private appMeta(): AppInfo {
@@ -293,10 +342,12 @@ export class App {
     this.els.settingsPanel.addEventListener("click", (e) => e.stopPropagation());
     this.els.settingsBackdrop.addEventListener("click", () => {
       this.settingsOpen = false;
+      this.shortcutRecording = null;
       this.paint();
     });
     this.els.closeSettings.addEventListener("click", () => {
       this.settingsOpen = false;
+      this.shortcutRecording = null;
       this.paint();
     });
     this.bindSettingsActions();
@@ -321,11 +372,37 @@ export class App {
       this.setCinemaMode(!this.cinemaMode);
       this.viewport.focus();
     });
+    this.els.toolPreviewGrid.addEventListener("click", () => {
+      this.sceneOptions.toggle("previewGrid");
+      this.applySceneOptions();
+      this.paint();
+      this.viewport.focus();
+    });
+    this.els.toolSceneGuides.addEventListener("click", () => {
+      this.sceneOptions.toggle("showGuides");
+      this.applySceneOptions();
+      if (this.settingsOpen) this.syncSceneSettingsUi();
+      this.paint();
+      this.viewport.focus();
+    });
+    this.els.sceneOptionsList.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-scene-option]");
+      if (!btn) return;
+      const key = btn.dataset.sceneOption as keyof SceneGuideOptions | undefined;
+      if (!key) return;
+      this.sceneOptions.toggle(key);
+      this.applySceneOptions();
+      if (this.settingsOpen) this.syncSceneSettingsUi();
+      this.paint();
+    });
     this.els.cinemaExit.addEventListener("click", () => {
+      this.setCinemaChromeIdle(false);
       this.setCinemaMode(false);
       this.viewport.focus();
     });
     this.els.cinemaToggleRotate.addEventListener("click", () => {
+      this.setCinemaChromeIdle(false);
+      this.scheduleCinemaChromeHide();
       this.toggleCinemaRotatePause();
       this.viewport.focus();
     });
@@ -418,6 +495,7 @@ export class App {
       void setThemePreference(pref).then((bundle) => {
         this.ui = bundle;
         initTheme(bundle);
+        this.onThemeResolved();
         this.syncThemeSegmentsActive();
         this.paint();
       });
@@ -430,10 +508,9 @@ export class App {
     const scene = this.els.perspectiveScene;
     const layerFar = this.els.perspectiveGridFar;
     const layerNear = this.els.perspectiveGridNear;
-    const horizon = this.els.perspectiveHorizon;
     const glow = this.els.perspectiveGlow;
     const viewportBg = this.els.viewportBg;
-    if (!scene || !layerFar || !layerNear || !horizon || !glow || !viewportBg) return;
+    if (!scene || !layerFar || !layerNear || !glow || !viewportBg) return;
 
     const target = { x: 0, y: 0 };
     const current = { x: 0, y: 0 };
@@ -443,22 +520,20 @@ export class App {
     const epsilon = 0.0008;
 
     const applyParallax = (): void => {
-      const tiltX = 68 + current.y * -2.8;
-      const driftX = current.x * 32;
-      const driftZ = current.y * 22;
-      const glowX = 50 + current.x * 18;
-      const glowY = 66 + current.y * 10;
+      const tiltX = 61 + current.y * -1.6;
+      const driftX = current.x * 22;
+      const driftZ = current.y * 12;
+      const glowX = 50 + current.x * 14;
+      const glowY = 70 + current.y * 6;
 
-      scene.style.perspectiveOrigin = `${50 + current.x * 10}% ${40 + current.y * 8}%`;
+      scene.style.perspectiveOrigin = `${50 + current.x * 7}% ${30 + current.y * 5}%`;
       glow.style.setProperty("--grid-glow-x", `${glowX}%`);
       glow.style.setProperty("--grid-glow-y", `${glowY}%`);
 
       layerNear.style.transform =
-        `rotateX(${tiltX}deg) rotateZ(${current.x * -1.2}deg) translate3d(${driftX}px, -168px, ${driftZ}px)`;
+        `rotateX(${tiltX}deg) rotateZ(${current.x * -0.7}deg) translate3d(${driftX}px, -150px, ${driftZ}px)`;
       layerFar.style.transform =
-        `rotateX(${tiltX + 0.6}deg) rotateZ(${current.x * -0.6}deg) translate3d(${driftX * 0.45}px, -168px, ${driftZ * 0.45 - 90}px)`;
-      horizon.style.transform =
-        `translate3d(${driftX * 0.22}px, ${current.y * 10}px, 0) scaleX(${1 + Math.abs(current.x) * 0.06})`;
+        `rotateX(${tiltX}deg) rotateZ(${current.x * -0.35}deg) translate3d(${driftX * 0.4}px, -150px, ${driftZ * 0.4 - 70}px)`;
     };
 
     const needsTick = (): boolean =>
@@ -523,6 +598,10 @@ export class App {
     this.els.settingsTitle.textContent = this.ui.settings;
     this.els.languageLabel.textContent = this.ui.language;
     this.els.appearanceLabel.textContent = this.ui.appearance;
+    this.els.shortcutsLabel.textContent = this.ui.settings_shortcuts;
+    this.els.shortcutsResetAllLabel.textContent = this.ui.shortcuts_reset_all;
+    this.els.sceneLabel.textContent = this.ui.settings_viewer_scene;
+    this.paintSceneSettings(true);
     this.els.aboutLabel.textContent = this.ui.settings_about;
     this.els.resourcesLabel.textContent = this.ui.settings_resources;
     this.els.checkUpdatesLabel.textContent = this.ui.check_for_updates;
@@ -531,6 +610,7 @@ export class App {
     this.els.linkReleases.textContent = this.ui.view_release_notes;
     this.els.linkIssues.textContent = this.ui.report_issue;
     this.els.linkLicense.textContent = this.ui.license_mit;
+    this.paintShortcutsSection();
     this.paintAboutSection();
     this.els.toolZoomOut.title = this.ui.tool_zoom_out;
     this.els.toolZoomOut.setAttribute("aria-label", this.ui.tool_zoom_out);
@@ -540,6 +620,10 @@ export class App {
     this.els.toolResetView.setAttribute("aria-label", this.ui.tool_reset_view);
     this.els.toolCinema.title = this.ui.tool_cinema;
     this.els.toolCinema.setAttribute("aria-label", this.ui.tool_cinema);
+    this.els.toolPreviewGrid.title = this.ui.tool_preview_grid;
+    this.els.toolPreviewGrid.setAttribute("aria-label", this.ui.tool_preview_grid);
+    this.els.toolSceneGuides.title = this.ui.tool_scene_guides;
+    this.els.toolSceneGuides.setAttribute("aria-label", this.ui.tool_scene_guides);
     this.els.cinemaExit.title = this.ui.tool_exit_cinema;
     this.els.cinemaExit.setAttribute("aria-label", this.ui.tool_exit_cinema);
     this.els.expandInspector.title = this.ui.expand_inspector;
@@ -609,7 +693,16 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (e.key === "Escape") {
+    if (this.shortcutRecording) {
+      this.handleShortcutRecord(e);
+      return;
+    }
+
+    const action = this.shortcuts.match(e);
+    if (!action) return;
+
+    if (action === "close_settings") {
+      e.preventDefault();
       if (this.cinemaMode) {
         this.setCinemaMode(false);
         return;
@@ -625,22 +718,147 @@ export class App {
       }
       return;
     }
-    if (this.phase !== "ready") return;
 
-    const key = e.key;
-    if (key === "=" || key === "+") {
-      e.preventDefault();
-      this.viewport.zoomIn();
-    } else if (key === "-" || key === "_") {
-      e.preventDefault();
-      this.viewport.zoomOut();
-    } else if (key.toLowerCase() === "f") {
-      void this.fitView();
-    } else if (key.toLowerCase() === "r") {
-      this.resetView();
-    } else if (key.toLowerCase() === "p") {
-      this.setCinemaMode(!this.cinemaMode);
+    if (this.runShortcut(action)) e.preventDefault();
+  }
+
+  private runShortcut(action: ShortcutId): boolean {
+    switch (action) {
+      case "open_file":
+        void this.pickFile();
+        return true;
+      case "open_folder":
+        void this.pickFolder();
+        return true;
+      case "settings":
+        this.settingsOpen = true;
+        this.paint();
+        return true;
+      case "zoom_in":
+        if (this.phase !== "ready") return false;
+        this.viewport.zoomIn();
+        return true;
+      case "zoom_out":
+        if (this.phase !== "ready") return false;
+        this.viewport.zoomOut();
+        return true;
+      case "fit_view":
+        if (this.phase !== "ready") return false;
+        void this.fitView();
+        return true;
+      case "reset_view":
+        if (this.phase !== "ready") return false;
+        this.resetView();
+        return true;
+      case "cinema_mode":
+        if (this.phase !== "ready") return false;
+        this.setCinemaMode(!this.cinemaMode);
+        return true;
+      default:
+        return false;
     }
+  }
+
+  private startShortcutRecording(id: ShortcutId): void {
+    this.shortcutRecording = id;
+    this.paintShortcutsSection();
+  }
+
+  private handleShortcutRecord(e: KeyboardEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = this.shortcutRecording;
+    if (!id) return;
+
+    if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      this.shortcutRecording = null;
+      this.paintShortcutsSection();
+      return;
+    }
+
+    const binding = bindingFromEvent(e);
+    if (!binding) return;
+
+    if (this.shortcuts.setBinding(id, binding)) {
+      this.shortcutRecording = null;
+      this.paintShortcutsSection();
+      return;
+    }
+    this.showToast(this.ui.shortcuts_conflict);
+  }
+
+  private paintShortcutsSection(): void {
+    const copy = {
+      section: this.ui.settings_shortcuts,
+      categoryGeneral: this.ui.shortcuts_category_general,
+      categoryViewer: this.ui.shortcuts_category_viewer,
+      pressKeys: this.ui.shortcuts_press_keys,
+      resetAll: this.ui.shortcuts_reset_all,
+      restore: this.ui.shortcuts_restore,
+      doubleClickFit: this.ui.shortcuts_double_click_fit,
+    };
+    this.els.shortcutsList.innerHTML = renderShortcutsSettings(
+      this.ui,
+      copy,
+      this.shortcuts,
+      this.shortcutRecording,
+    );
+  }
+
+  private syncSceneSettingsUi(opts: SceneGuideOptions = this.sceneOptions.get()): void {
+    for (const btn of this.els.sceneOptionsList.querySelectorAll<HTMLElement>(
+      "[data-scene-option]",
+    )) {
+      const key = btn.dataset.sceneOption as keyof SceneGuideOptions | undefined;
+      if (!key) continue;
+      btn.setAttribute("aria-checked", opts[key] ? "true" : "false");
+    }
+  }
+
+  private paintSceneSettings(rebuild = false): void {
+    const opts = this.sceneOptions.get();
+    if (!rebuild && this.els.sceneOptionsList.querySelector("[data-scene-option]")) {
+      this.syncSceneSettingsUi(opts);
+      return;
+    }
+    const rows: { key: keyof SceneGuideOptions; label: string; icon: string }[] = [
+      { key: "previewGrid", label: this.ui.scene_preview_grid, icon: "grid_on" },
+      { key: "showGuides", label: this.ui.scene_guides, icon: "open_with" },
+    ];
+    this.els.sceneOptionsList.innerHTML = rows
+      .map(({ key, label, icon }) => {
+        const on = opts[key];
+        return `
+          <button
+            type="button"
+            class="settings-scene-row"
+            data-scene-option="${key}"
+            role="switch"
+            aria-checked="${on ? "true" : "false"}"
+            aria-label="${escapeAttr(label)}"
+          >
+            <span class="settings-scene-row-label">
+              <span class="material-symbols-outlined settings-scene-row-icon" aria-hidden="true">${icon}</span>
+              <span class="settings-scene-row-text">${escapeHtml(label)}</span>
+            </span>
+            <span class="settings-scene-row-actions">
+              <span class="settings-scene-switch" aria-hidden="true">
+                <span class="settings-scene-switch-knob"></span>
+              </span>
+            </span>
+          </button>`;
+      })
+      .join("");
+  }
+
+  private applySceneOptions(): void {
+    if (this.phase !== "ready") return;
+    this.viewport.syncSceneGuides(this.sceneOptions.get());
+  }
+
+  private onThemeResolved(): void {
+    invalidateSceneThemeCache();
+    this.applySceneOptions();
   }
 
   private resetView(): void {
@@ -668,11 +886,48 @@ export class App {
     await this.viewport.fit();
   }
 
+  private bindCinemaChromeIdle(): void {
+    const reveal = (): void => {
+      if (!this.cinemaMode) return;
+      this.setCinemaChromeIdle(false);
+      this.scheduleCinemaChromeHide();
+    };
+
+    window.addEventListener("mousemove", reveal, { passive: true });
+    this.els.cinemaControls.addEventListener("mouseenter", reveal);
+  }
+
+  private scheduleCinemaChromeHide(): void {
+    if (!this.cinemaMode) return;
+    if (this.cinemaChromeTimer) clearTimeout(this.cinemaChromeTimer);
+    this.cinemaChromeTimer = setTimeout(() => {
+      this.cinemaChromeTimer = null;
+      if (this.cinemaMode) this.setCinemaChromeIdle(true);
+    }, this.cinemaChromeIdleMs);
+  }
+
+  private clearCinemaChromeTimer(): void {
+    if (this.cinemaChromeTimer) {
+      clearTimeout(this.cinemaChromeTimer);
+      this.cinemaChromeTimer = null;
+    }
+  }
+
+  private setCinemaChromeIdle(idle: boolean): void {
+    const on = idle && this.cinemaMode;
+    this.els.cinemaControls.classList.toggle("is-chrome-idle", on);
+    this.shell.classList.toggle("is-cinema-chrome-idle", on);
+    document.documentElement.classList.toggle("is-cinema-cursor-hidden", on);
+    this.viewport.setCursorHidden(on);
+  }
+
   private bindCinemaIdleResume(): void {
     const surface = this.els.viewportMain;
     surface.addEventListener("pointerdown", () => {
       if (!this.cinemaMode || this.cinemaRotatePaused) return;
       this.clearCinemaIdleTimer();
+      this.setCinemaChromeIdle(false);
+      this.scheduleCinemaChromeHide();
       this.viewport.setAutoRotate(false);
       this.paintCinemaControls();
     });
@@ -684,6 +939,8 @@ export class App {
       "wheel",
       () => {
         if (!this.cinemaMode || this.cinemaRotatePaused) return;
+        this.setCinemaChromeIdle(false);
+        this.scheduleCinemaChromeHide();
         this.viewport.setAutoRotate(false);
         this.paintCinemaControls();
         this.scheduleCinemaIdleResume();
@@ -719,9 +976,15 @@ export class App {
       this.cinemaRotatePaused = false;
       this.resetView();
       this.viewport.setAutoRotate(true);
+      this.setCinemaChromeIdle(false);
+      void customElements.whenDefined("model-viewer").then(() => {
+        if (this.cinemaMode) this.scheduleCinemaChromeHide();
+      });
       this.paintCinemaControls();
     } else {
       this.clearCinemaIdleTimer();
+      this.clearCinemaChromeTimer();
+      this.setCinemaChromeIdle(false);
       this.cinemaRotatePaused = false;
       this.viewport.setAutoRotate(false);
     }
@@ -892,12 +1155,9 @@ export class App {
     }
 
     const collapsed = this.collapsedFolders.has(folderKey);
+    folder.classList.toggle("is-collapsed", collapsed);
     const toggle = folder.querySelector<HTMLElement>("[data-action=toggle-folder]");
-    const children = folder.querySelector<HTMLElement>(".lib-folder-children");
-    const chevron = folder.querySelector<HTMLElement>(".lib-folder-chevron");
     toggle?.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    children?.classList.toggle("is-collapsed", collapsed);
-    if (chevron) chevron.textContent = collapsed ? "chevron_right" : "expand_more";
   }
 
   /** Add or update a library entry. Returns false when the list is full and this is a new path. */
@@ -1213,6 +1473,8 @@ export class App {
     this.els.settingsBackdrop.classList.toggle("hidden", !this.settingsOpen);
     if (this.settingsOpen) {
       this.paintAboutSection();
+      this.paintShortcutsSection();
+      this.paintSceneSettings();
     }
     this.els.clearConfirmPop.classList.toggle("hidden", !this.clearConfirmOpen);
     this.els.clearLibrary.classList.toggle("is-active", this.clearConfirmOpen);
@@ -1222,9 +1484,12 @@ export class App {
       this.els.clearConfirmOk.textContent = this.ui.clear_library;
     }
     this.els.viewportMain.classList.toggle("is-interactive", interactive);
-    this.setGridParallaxDormant?.(
-      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null),
-    );
+    const modelPreview =
+      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    this.shell.classList.toggle("is-model-preview", modelPreview);
+    this.applySceneOptions();
+    this.viewport.setPresentationMode(this.phase === "ready");
+    this.setGridParallaxDormant?.(modelPreview);
     this.els.overlay.classList.toggle("is-visible", overlayVisible);
     this.els.overlay.classList.toggle("is-empty", this.phase === "empty");
     this.els.overlay.classList.toggle("is-loading", this.phase === "loading");
@@ -1245,7 +1510,11 @@ export class App {
     this.els.inspector.classList.toggle("is-collapsed", this.inspectorCollapsed);
 
     this.els.viewportDock.classList.toggle("is-visible", interactive && !this.cinemaMode);
+    this.axisWidget.setActive(this.phase === "ready");
     this.els.toolCinema.classList.toggle("is-active", this.cinemaMode);
+    const sceneOpts = this.sceneOptions.get();
+    this.els.toolPreviewGrid.classList.toggle("is-active", sceneOpts.previewGrid);
+    this.els.toolSceneGuides.classList.toggle("is-active", sceneOpts.showGuides);
     const showInspectorTab =
       showModelPanels && this.inspectorCollapsed && !this.cinemaMode;
     this.els.expandInspector.classList.toggle("is-visible", showInspectorTab);
@@ -1566,7 +1835,6 @@ const SHELL_HTML = `
     <div class="perspective-scene">
       <div class="perspective-grid perspective-grid--far"></div>
       <div class="perspective-grid perspective-grid--near"></div>
-      <div class="perspective-horizon"></div>
     </div>
     <div class="perspective-glow"></div>
   </div>
@@ -1574,6 +1842,7 @@ const SHELL_HTML = `
   <main class="viewport">
     <div class="viewport-host" tabindex="0"></div>
     <div class="overlay" data-bind="overlay"></div>
+    <div class="axis-widget" data-bind="axis-widget" aria-hidden="true"></div>
   </main>
 
   <aside class="explorer-rail glass-capsule">
@@ -1643,7 +1912,14 @@ const SHELL_HTML = `
     </button>
     <span class="dock-divider" aria-hidden="true"></span>
     <button type="button" class="dock-btn" data-action="cinema-mode" aria-label="">
-      <span class="material-symbols-outlined">panorama</span>
+      <span class="material-symbols-outlined">360</span>
+    </button>
+    <span class="dock-divider" aria-hidden="true"></span>
+    <button type="button" class="dock-btn" data-action="toggle-preview-grid" aria-label="">
+      <span class="material-symbols-outlined">grid_on</span>
+    </button>
+    <button type="button" class="dock-btn" data-action="toggle-scene-guides" aria-label="">
+      <span class="material-symbols-outlined">open_with</span>
     </button>
   </footer>
 
@@ -1678,6 +1954,22 @@ const SHELL_HTML = `
         <div class="settings-section">
           <label data-bind="appearance-label"></label>
           <div class="segmented" data-bind="theme-group"></div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-head">
+            <label data-bind="shortcuts-label"></label>
+            <button type="button" class="settings-shortcut-reset-all" data-action="reset-shortcuts">
+              <span class="material-symbols-outlined settings-shortcut-reset-all-icon" aria-hidden="true">restart_alt</span>
+              <span class="settings-shortcut-reset-all-label" data-bind="shortcuts-reset-all-label"></span>
+            </button>
+          </div>
+          <div class="settings-shortcuts" data-bind="shortcuts-list"></div>
+        </div>
+        <div class="settings-section">
+          <label data-bind="scene-label"></label>
+          <div class="settings-scene">
+            <div class="settings-scene-grid" data-bind="scene-options-list"></div>
+          </div>
         </div>
         <div class="settings-divider" aria-hidden="true"></div>
         <div class="settings-section">

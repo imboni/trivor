@@ -93,9 +93,24 @@ export interface UiBundle {
   lang_zh: string;
   lang_system: string;
   appearance: string;
+  settings_shortcuts: string;
+  shortcuts_category_general: string;
+  shortcuts_category_viewer: string;
+  shortcuts_press_keys: string;
+  shortcuts_reset_all: string;
+  shortcuts_restore: string;
+  shortcuts_conflict: string;
+  shortcuts_double_click_fit: string;
   theme_dark: string;
   theme_light: string;
   theme_system: string;
+  settings_viewer_scene: string;
+  scene_preview_grid: string;
+  scene_guides: string;
+  scene_option_on: string;
+  scene_option_off: string;
+  tool_preview_grid: string;
+  tool_scene_guides: string;
 }
 
 export interface AppInfo {
