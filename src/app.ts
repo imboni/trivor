@@ -7,6 +7,7 @@ import {
   normalizeModelPath,
   resolveViewerModelPath,
   onLoadProgress,
+  onPackProgress,
   openFolderDialog,
   openModelDialog,
   setLocale,
@@ -47,7 +48,9 @@ export class App {
   private phase: AppPhase = "empty";
   private summary: SceneSummary | null = null;
   private loadPercent = 0;
-  private loadingStage: "parse" | "render" = "parse";
+  private parseProgress = 0;
+  private packProgress = 0;
+  private loadingStage: "parse" | "pack" | "render" = "parse";
   private status = "";
   private settingsOpen = false;
   private clearConfirmOpen = false;
@@ -139,9 +142,14 @@ export class App {
     watchSystemTheme(() => this.ui.theme_pref as ThemePref);
     this.applyUi();
     await onLoadProgress((p) => {
-      if (this.phase !== "loading" || this.loadingStage !== "parse") return;
-      this.loadPercent = Math.min(p, 90);
-      this.paintOverlay();
+      if (this.phase !== "loading") return;
+      this.parseProgress = p;
+      this.syncLoadingProgress();
+    });
+    await onPackProgress((p) => {
+      if (this.phase !== "loading") return;
+      this.packProgress = p;
+      this.syncLoadingProgress();
     });
     await listen<string>("menu-action", (e) => this.onMenuAction(e.payload));
     await listen<string>("open-path", (e) => {
@@ -432,14 +440,12 @@ export class App {
 
   private resetView(): void {
     if (this.phase !== "ready") return;
-    if (!this.viewport.reset()) {
-      const path = this.activePath;
-      const cached = path ? this.cameraByPath.get(path) : undefined;
-      if (cached) {
-        this.viewport.importSnapshot(cached);
-        this.viewport.reset();
-      }
+    const path = this.activePath;
+    const initial = path ? this.cameraByPath.get(path) : undefined;
+    if (initial) {
+      this.viewport.importSnapshot(initial);
     }
+    this.viewport.reset();
   }
 
   private persistCameraForPath(path: string): void {
@@ -740,6 +746,8 @@ export class App {
     this.activePath = path;
     this.phase = "loading";
     this.loadPercent = 0;
+    this.parseProgress = 0;
+    this.packProgress = 0;
     this.loadingStage = "parse";
     this.status = "";
     this.paint();
@@ -749,9 +757,10 @@ export class App {
     try {
       const cached = this.summaryCache.get(path);
 
-      this.loadingStage = "render";
-      this.loadPercent = cached ? 40 : 10;
-      this.paintOverlay();
+      this.loadingStage = cached ? "pack" : "parse";
+      this.parseProgress = cached ? 100 : 0;
+      this.packProgress = 0;
+      this.syncLoadingProgress();
 
       if (this.cinemaMode) {
         this.viewport.setAutoRotate(false);
@@ -762,17 +771,18 @@ export class App {
         ? Promise.resolve(cached)
         : loadModel(path).then((summary) => {
             this.summaryCache.set(path, summary);
+            this.parseProgress = 100;
+            if (token === this.loadToken && this.phase === "loading") {
+              this.syncLoadingProgress();
+            }
             return summary;
           });
-      const viewerPathPromise = resolveViewerModelPath(path).then((viewerPath) => {
-        this.loadPercent = Math.max(this.loadPercent, cached ? 70 : 45);
-        this.paintOverlay();
-        return viewerPath;
-      });
+      const viewerPathPromise = resolveViewerModelPath(path);
 
       const [summary, viewerPath] = await Promise.all([summaryPromise, viewerPathPromise]);
       if (token !== this.loadToken) return;
 
+      this.loadingStage = "render";
       this.loadPercent = 85;
       this.paintOverlay();
 
@@ -780,8 +790,7 @@ export class App {
       this.loadPercent = 92;
       this.paintOverlay();
 
-      const restore = this.cameraByPath.get(path);
-      await this.viewport.load(assetUrl, this.ui.error_viewer_load, restore);
+      await this.viewport.load(assetUrl, this.ui.error_viewer_load);
 
       if (token !== this.loadToken) return;
       if (
@@ -1023,9 +1032,30 @@ export class App {
     }
   }
 
+  private syncLoadingProgress(): void {
+    if (this.phase !== "loading" || this.loadingStage === "render") return;
+
+    const parseDone = this.parseProgress >= 100;
+    if (!parseDone) {
+      this.loadingStage = "parse";
+      this.loadPercent = Math.min(
+        40,
+        Math.floor(this.parseProgress * 0.35 + this.packProgress * 0.05),
+      );
+    } else {
+      this.loadingStage = "pack";
+      this.loadPercent = Math.min(90, 10 + Math.floor(this.packProgress * 0.8));
+    }
+    this.paintOverlay();
+  }
+
   private loadingLabel(): string {
     const stage =
-      this.loadingStage === "parse" ? this.ui.loading_reading : this.ui.loading_rendering;
+      this.loadingStage === "parse"
+        ? this.ui.loading_reading
+        : this.loadingStage === "pack"
+          ? this.ui.loading_packing
+          : this.ui.loading_rendering;
     return `${stage} · ${this.loadPercent}%`;
   }
 

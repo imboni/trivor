@@ -40,3 +40,9 @@ export function onLoadProgress(handler: (percent: number) => void): Promise<() =
     handler(e.payload.percent);
   });
 }
+
+export function onPackProgress(handler: (percent: number) => void): Promise<() => void> {
+  return listen<{ percent: number }>("pack-progress", (e) => {
+    handler(e.payload.percent);
+  });
+}

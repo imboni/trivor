@@ -29,6 +29,7 @@ export interface UiBundle {
   empty_subtitle: string;
   loading: string;
   loading_reading: string;
+  loading_packing: string;
   loading_rendering: string;
   error_folder_empty: string;
   library_limit: string;

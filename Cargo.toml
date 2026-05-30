@@ -32,6 +32,7 @@ slint = { version = "1.16", default-features = false, features = [
 slint-build = "1.16"
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+rayon = "1.10"
 
 trivor-core = { path = "crates/core" }
 trivor-i18n = { path = "crates/i18n" }

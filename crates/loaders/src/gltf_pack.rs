@@ -2,8 +2,8 @@
 //! and strip `EXT_texture_webp` (unsupported by model-viewer).
 
 use std::borrow::Cow;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
 use base64::Engine;
@@ -11,9 +11,12 @@ use gltf::binary::Glb;
 use gltf::json;
 use gltf::json::validation::USize64;
 use gltf::{buffer, Gltf};
-use image::{ImageFormat, RgbaImage};
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::{ExtendedColorType, ImageEncoder, ImageFormat, RgbaImage};
+use rayon::prelude::*;
 
 use crate::LoadError;
+use crate::ProgressFn;
 
 const EXT_TEXTURE_WEBP: &str = "EXT_texture_webp";
 
@@ -91,9 +94,17 @@ fn decode_rgba(encoded: &[u8], mime: Option<&str>, source: &Path) -> Result<Rgba
 
 fn encode_rgba_png(img: &RgbaImage, source: &Path) -> Result<Vec<u8>, LoadError> {
     let mut buf = Vec::new();
-    img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+    let encoder = PngEncoder::new_with_quality(&mut buf, CompressionType::Fast, FilterType::NoFilter);
+    encoder
+        .write_image(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgba8)
         .map_err(|e| parse_err(source, format!("failed to encode texture: {e}")))?;
     Ok(buf)
+}
+
+fn report_progress(progress: Option<&ProgressFn<'_>>, pct: u8) {
+    if let Some(f) = progress {
+        f(pct.min(100));
+    }
 }
 
 fn texture_source_is_empty(source: &json::Index<json::image::Image>) -> bool {
@@ -174,7 +185,8 @@ fn needs_viewer_repack(source: &Path) -> Result<bool, LoadError> {
     Ok(false)
 }
 
-fn pack_model_for_viewer(source: &Path, dest: &Path) -> Result<(), LoadError> {
+fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressFn<'_>>) -> Result<(), LoadError> {
+    report_progress(progress, 5);
     let (gltf, base) = open_for_pack(source)?;
     let base_ref = base.as_deref();
     let buffers = gltf::import_buffers(&gltf.document, base_ref, gltf.blob).map_err(|e| {
@@ -183,6 +195,7 @@ fn pack_model_for_viewer(source: &Path, dest: &Path) -> Result<(), LoadError> {
             message: e.to_string(),
         }
     })?;
+    report_progress(progress, 12);
 
     let mut root = gltf.document.into_json();
     normalize_textures_for_viewer(&mut root);
@@ -205,18 +218,32 @@ fn pack_model_for_viewer(source: &Path, dest: &Path) -> Result<(), LoadError> {
         view.byte_offset = Some(USize64((base_off + off) as u64));
     }
 
-    let mut packed_images = Vec::new();
-    for (i, image) in root.images.iter().enumerate() {
-        if !image_needs_embed(image) {
-            continue;
-        }
-        let mime = image_mime(image);
-        let encoded =
-            read_encoded_image(image, &root.buffer_views, &buffers, base_ref, source)?;
-        let rgba = decode_rgba(&encoded, mime.as_deref(), source)?;
-        let png = encode_rgba_png(&rgba, source)?;
-        packed_images.push((i, png));
-    }
+    let embed_indices: Vec<usize> = root
+        .images
+        .iter()
+        .enumerate()
+        .filter(|(_, image)| image_needs_embed(image))
+        .map(|(i, _)| i)
+        .collect();
+    let total = embed_indices.len().max(1);
+    let done = AtomicUsize::new(0);
+
+    let packed_images: Result<Vec<(usize, Vec<u8>)>, LoadError> = embed_indices
+        .par_iter()
+        .map(|&i| {
+            let image = &root.images[i];
+            let mime = image_mime(image);
+            let encoded = read_encoded_image(image, &root.buffer_views, &buffers, base_ref, source)?;
+            let rgba = decode_rgba(&encoded, mime.as_deref(), source)?;
+            let png = encode_rgba_png(&rgba, source)?;
+            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+            report_progress(progress, 12 + ((n * 73) / total) as u8);
+            Ok((i, png))
+        })
+        .collect();
+
+    let packed_images = packed_images?;
+    report_progress(progress, 88);
 
     let mut buffer_views = std::mem::take(&mut root.buffer_views);
 
@@ -257,6 +284,7 @@ fn pack_model_for_viewer(source: &Path, dest: &Path) -> Result<(), LoadError> {
         path: source.to_path_buf(),
         message: format!("failed to serialize glTF: {e}"),
     })?;
+    report_progress(progress, 94);
 
     let glb = Glb {
         header: gltf::binary::Header {
@@ -288,6 +316,7 @@ fn pack_model_for_viewer(source: &Path, dest: &Path) -> Result<(), LoadError> {
         message: e.to_string(),
     })?;
 
+    report_progress(progress, 100);
     Ok(())
 }
 
@@ -309,7 +338,7 @@ fn cache_key(source: &Path) -> Result<String, LoadError> {
     Ok(format!("{stem}-{mtime}"))
 }
 
-fn pack_to_cache(source: &Path) -> Result<PathBuf, LoadError> {
+fn pack_to_cache(source: &Path, progress: Option<&ProgressFn<'_>>) -> Result<PathBuf, LoadError> {
     let cache_dir = crate::viewer_cache_dir();
     std::fs::create_dir_all(&cache_dir).map_err(|e| LoadError::Io {
         path: cache_dir.clone(),
@@ -328,14 +357,20 @@ fn pack_to_cache(source: &Path) -> Result<PathBuf, LoadError> {
     };
 
     if needs_pack {
-        pack_model_for_viewer(source, &dest)?;
+        pack_model_for_viewer(source, &dest, progress)?;
+    } else {
+        report_progress(progress, 100);
     }
 
     Ok(dest)
 }
 
 /// Path suitable for `convertFileSrc` + model-viewer (packed GLB when needed).
-pub fn resolve_viewer_model(source: &Path) -> Result<PathBuf, LoadError> {
+pub fn resolve_viewer_model(
+    source: &Path,
+    progress: Option<&ProgressFn<'_>>,
+) -> Result<PathBuf, LoadError> {
+    report_progress(progress, 0);
     let source = source
         .canonicalize()
         .map_err(|e| LoadError::Io {
@@ -350,11 +385,12 @@ pub fn resolve_viewer_model(source: &Path) -> Result<PathBuf, LoadError> {
         .unwrap_or_default();
 
     match ext.as_str() {
-        "gltf" => pack_to_cache(&source),
+        "gltf" => pack_to_cache(&source, progress),
         "glb" => {
             if needs_viewer_repack(&source)? {
-                pack_to_cache(&source)
+                pack_to_cache(&source, progress)
             } else {
+                report_progress(progress, 100);
                 Ok(source)
             }
         }

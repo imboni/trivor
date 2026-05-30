@@ -14,3 +14,4 @@ glam.workspace = true
 gltf = { version = "1.4", features = ["import", "extensions", "allow_empty_texture"] }
 image.workspace = true
 base64 = "0.22"
+rayon.workspace = true

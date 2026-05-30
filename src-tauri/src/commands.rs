@@ -124,12 +124,17 @@ pub fn scan_models_folder(
 #[tauri::command]
 pub async fn resolve_viewer_model_path(
     path: String,
+    window: WebviewWindow,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
     let locale = state.lock().expect("app state").locale;
+    let window = window.clone();
     async_runtime::spawn_blocking(move || {
         let i18n = I18n::new(locale);
-        resolve_viewer_model(Path::new(&path))
+        let progress = move |pct: u8| {
+            let _ = window.emit("pack-progress", LoadProgress { percent: pct });
+        };
+        resolve_viewer_model(Path::new(&path), Some(&progress))
             .map(|p| p.to_string_lossy().into_owned())
             .map_err(|e| format_load_error(e, &i18n))
     })

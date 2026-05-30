@@ -26,6 +26,8 @@ interface ModelViewerElement extends HTMLElement {
   fieldOfView: string;
   updateFraming(): Promise<void>;
   updateComplete: Promise<boolean>;
+  readonly turntableRotation: number;
+  resetTurntableRotation(theta?: number): void;
 }
 
 /** ~12% radius change per toolbar click. */
@@ -49,6 +51,8 @@ export interface SavedCamera {
   radiusM: number;
   /** Degrees; wheel zoom couples FOV with orbit radius in model-viewer. */
   fieldOfViewDeg: number;
+  /** Scene turntable yaw (rad); auto-rotate spins this, not cameraOrbit. */
+  turntableYaw: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -65,6 +69,15 @@ function formatTarget(target: Vector3D): string {
 
 function formatFieldOfView(degrees: number): string {
   return `${degrees}deg`;
+}
+
+/** Pick equivalent angle so interpolation takes the short arc after auto-rotate. */
+function thetaNearCurrent(current: number, target: number): number {
+  const tau = Math.PI * 2;
+  let t = target;
+  while (t - current > Math.PI) t -= tau;
+  while (t - current < -Math.PI) t += tau;
+  return t;
 }
 
 function wheelInput(mv: ModelViewerElement): HTMLElement | null {
@@ -151,13 +164,6 @@ async function waitForCameraSettled(mv: ModelViewerElement): Promise<void> {
   }
 }
 
-/** Drop previous model camera so the next load frames cleanly (no full element recreate). */
-function resetCameraForSwap(mv: ModelViewerElement): void {
-  mv.cameraTarget = "auto auto auto";
-  mv.cameraOrbit = "auto auto auto";
-  mv.fieldOfView = "auto";
-}
-
 /** WKWebView eats wheel on the shell — forward to model-viewer's `.userInput` layer. */
 function bindWheelZoom(target: HTMLElement, viewport: ModelViewport): void {
   const onWheel = (e: WheelEvent) => {
@@ -214,26 +220,35 @@ export class ModelViewport {
     this.host.focus();
   }
 
-  async load(
-    assetUrl: string,
-    loadErrorMessage = "Failed to load model",
-    restore?: SavedCamera | null,
-  ): Promise<void> {
+  /** Fresh element — only way to fully drop the previous model's camera in WKWebView. */
+  private replaceViewerElement(): void {
+    this.mv.remove();
+    this.mv = createModelViewerElement();
+    this.host.appendChild(this.mv);
+  }
+
+  async load(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<void> {
     await customElements.whenDefined("model-viewer");
     this.loadAbort?.abort();
     const abort = new AbortController();
     this.loadAbort = abort;
     const gen = ++this.loadGen;
+    this.savedCamera = null;
+
+    if (this.mv.src && this.mv.src !== assetUrl) {
+      this.replaceViewerElement();
+    }
+
     const mv = this.mv;
 
     const settle = async (): Promise<void> => {
-      if (gen !== this.loadGen || !mv.src) return;
+      if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
       try {
         await Promise.race([
           (async () => {
             await mv.updateFraming();
             await mv.updateComplete;
-            if (gen !== this.loadGen || !mv.src) return;
+            if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
             await waitForCameraSettled(mv);
           })(),
           waitMs(SETTLE_TIMEOUT_MS),
@@ -241,24 +256,9 @@ export class ModelViewport {
       } catch {
         /* framing is best-effort */
       }
-      if (gen !== this.loadGen || !mv.src) return;
-
-      if (restore) {
-        this.savedCamera = { ...restore };
-        this.applySavedCamera();
-        await waitForCameraSettled(mv);
-      } else {
-        this.captureInitialCamera();
-      }
+      if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
+      this.captureInitialCamera();
     };
-
-    this.savedCamera = null;
-
-    if (mv.src && mv.src !== assetUrl) {
-      resetCameraForSwap(mv);
-      mv.src = null;
-      await waitFrames(3);
-    }
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -284,13 +284,12 @@ export class ModelViewport {
         mv.addEventListener("load", onReady, { once: true, signal: abort.signal });
         mv.addEventListener("error", onError, { once: true, signal: abort.signal });
 
-        resetCameraForSwap(mv);
         mv.src = assetUrl;
 
         void (async () => {
           const deadline = Date.now() + LOAD_TIMEOUT_MS;
           while (!done && !abort.signal.aborted && gen === this.loadGen) {
-            if (mv.src === assetUrl && mv.loaded) {
+            if (mv === this.mv && mv.src === assetUrl && mv.loaded) {
               onReady();
               return;
             }
@@ -313,9 +312,7 @@ export class ModelViewport {
     this.loadAbort = undefined;
     this.loadGen++;
     this.savedCamera = null;
-    this.mv.remove();
-    this.mv = createModelViewerElement();
-    this.host.appendChild(this.mv);
+    this.replaceViewerElement();
   }
 
   /** Continuous zoom from wheel delta when shadow `.userInput` is unavailable. */
@@ -363,9 +360,52 @@ export class ModelViewport {
 
   /** Restore the pose captured when this model finished loading. */
   reset(): boolean {
-    if (!this.mv.src || !this.savedCamera) return false;
-    this.applySavedCamera();
+    const snap = this.savedCamera;
+    if (!this.mv.src || !snap) return false;
+
+    this.setAutoRotate(false);
+    this.mv.resetTurntableRotation(snap.turntableYaw ?? 0);
+    this.syncCameraAttributesFromState();
+
+    requestAnimationFrame(() => {
+      if (!this.mv.src || !this.savedCamera) return;
+      this.applySavedCamera();
+    });
     return true;
+  }
+
+  /** Mirror live camera into attributes so a new goal can interpolate (needed after auto-rotate). */
+  private syncCameraAttributesFromState(): void {
+    const mv = this.mv;
+    if (!mv.src) return;
+    const orbit = mv.getCameraOrbit();
+    const target = mv.getCameraTarget();
+    const fov = mv.getFieldOfView();
+    mv.cameraTarget = formatTarget(target);
+    if (Number.isFinite(fov) && fov > 0) {
+      mv.fieldOfView = formatFieldOfView(fov);
+    }
+    mv.cameraOrbit = formatOrbit(orbit);
+  }
+
+  private applySavedCamera(): void {
+    const snap = this.savedCamera;
+    const mv = this.mv;
+    if (!snap || !mv.src) return;
+    const current = mv.getCameraOrbit();
+    mv.cameraTarget = formatTarget({
+      x: snap.targetX,
+      y: snap.targetY,
+      z: snap.targetZ,
+    });
+    if (Number.isFinite(snap.fieldOfViewDeg) && snap.fieldOfViewDeg > 0) {
+      mv.fieldOfView = formatFieldOfView(snap.fieldOfViewDeg);
+    }
+    mv.cameraOrbit = formatOrbit({
+      theta: thetaNearCurrent(current.theta, snap.theta),
+      phi: snap.phi,
+      radius: snap.radiusM,
+    });
   }
 
   isAutoRotateActive(): boolean {
@@ -385,25 +425,6 @@ export class ModelViewport {
     }
   }
 
-  private applySavedCamera(): void {
-    const snap = this.savedCamera;
-    const mv = this.mv;
-    if (!snap || !mv.src) return;
-    mv.cameraTarget = formatTarget({
-      x: snap.targetX,
-      y: snap.targetY,
-      z: snap.targetZ,
-    });
-    if (Number.isFinite(snap.fieldOfViewDeg) && snap.fieldOfViewDeg > 0) {
-      mv.fieldOfView = formatFieldOfView(snap.fieldOfViewDeg);
-    }
-    mv.cameraOrbit = formatOrbit({
-      theta: snap.theta,
-      phi: snap.phi,
-      radius: snap.radiusM,
-    });
-  }
-
   private captureInitialCamera(): void {
     const mv = this.mv;
     const orbit = mv.getCameraOrbit();
@@ -419,6 +440,7 @@ export class ModelViewport {
       phi: orbit.phi,
       radiusM: orbit.radius,
       fieldOfViewDeg: fov,
+      turntableYaw: mv.turntableRotation,
     };
   }
 }
