@@ -4560,7 +4560,6 @@ dependencies = [
  "trivor-i18n",
  "trivor-loaders",
  "ureq",
- "window-vibrancy",
 ]
 
 [[package]]

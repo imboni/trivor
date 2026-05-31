@@ -22,7 +22,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 
 | Area | Capabilities |
 |------|--------------|
-| **Viewport** | Orbit, zoom, fit, reset camera; double-click to fit; cinema mode with auto-rotate |
+| **Viewport** | Orbit, zoom, fit visible area, reset to initial view; double-click to fit; cinema mode with auto-rotate |
 | **Library** | Open a file or folder; format badges; reveal in Finder |
 | **Inspector** | Vertex / triangle / mesh / material counts; bounding dimensions; material swatches |
 | **Scene aids** | Optional grid floor; model center and axis guides (off by default) |
@@ -68,9 +68,11 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 |---------|--------|
 | Drag | Orbit |
 | Scroll / pinch | Zoom |
-| **Fit** (`⌘0`, `F`, or double-click) | Frame the model |
-| **Reset** (`⌘R` or `R`) | Return to the initial camera |
-| Dock tools | Zoom, reset, cinema mode, grid floor, center & axes |
+| **Fit** (`⌘0`, `F`, or double-click) | Frame the model in the **visible area** (between panels and dock) |
+| **Reset** (`⌘R` or `R`) | Return to the **initial camera** when the model was opened |
+| Bottom dock | **Scene** (grid, axes) · **Cinema** · **Camera** (fit, zoom, reset) |
+
+On macOS, the window uses a transparent overlay title bar: drag the top strip to move the window, double-click it to zoom. After changing `tauri.conf.json` title bar settings, fully quit and restart `npm run tauri dev`.
 
 ### Cinema mode
 
@@ -89,10 +91,10 @@ Open **Settings** (`⌘,`) to change language, appearance, keyboard shortcuts, a
 | `⌘,` | Settings |
 | `Esc` | Close settings |
 | `⌘+` / `⌘−` | Zoom in / out |
-| `⌘0` / `F` | Fit to view |
-| `⌘R` / `R` | Reset camera |
+| `⌘0` / `F` | Fit visible area |
+| `⌘R` / `R` | Reset to initial view |
 | `P` | Cinema mode |
-| Double-click viewport | Fit to view |
+| Double-click viewport | Fit visible area |
 
 All shortcuts except double-click fit can be remapped in **Settings → Shortcuts**.
 
@@ -134,7 +136,7 @@ App icon regeneration: [docs/icon.md](docs/icon.md).
 
 ```text
 trivor/
-├── src/                 # TypeScript UI (Vite)
+├── src/                 # TypeScript UI (Vite); viewport-framing.ts handles panel-aware fit
 ├── src-tauri/           # Tauri shell, menus, IPC commands
 ├── crates/
 │   ├── core/            # Scene summary types
@@ -177,7 +179,6 @@ Trivor is built on open-source components. The table below lists **direct** depe
 | [rfd](https://crates.io/crates/rfd) | Native open-file / open-folder dialogs | MIT | [PolyMeilex/rfd](https://github.com/PolyMeilex/rfd) |
 | [ureq](https://crates.io/crates/ureq) | HTTP client for update checks | MIT / Apache-2.0 | [algesten/ureq](https://github.com/algesten/ureq) |
 | [dark-light](https://crates.io/crates/dark-light) | System appearance detection | MIT | [rust-dark-light/dark-light](https://github.com/rust-dark-light/dark-light) |
-| [window-vibrancy](https://crates.io/crates/window-vibrancy) | macOS window vibrancy | MIT | [tauri-apps/window-vibrancy](https://github.com/tauri-apps/window-vibrancy) |
 
 ### Supporting Rust libraries
 

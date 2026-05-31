@@ -150,7 +150,7 @@
 
 .update-banner {
   position: fixed;
-  top: calc(var(--shell-pad) + 10px);
+  top: calc(var(--content-top) + 10px);
   left: 50%;
   z-index: 85;
   display: flex;
@@ -945,7 +945,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  padding: 6px;
   border-radius: var(--radius-full);
   color: var(--text-subtle);
   transition:
@@ -967,10 +967,27 @@
   font-size: 22px;
 }
 
+.dock-icon-axes {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.dock-icon-axes svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .dock-divider {
   width: 1px;
-  height: 16px;
+  height: 18px;
+  flex-shrink: 0;
   align-self: center;
+  margin: 0 4px;
   background: var(--border);
 }
 
@@ -1953,10 +1970,28 @@
   border-color: var(--border);
 }
 
-.settings-link .material-symbols-outlined {
+.settings-link .material-symbols-outlined,
+.settings-link-icon {
   flex-shrink: 0;
-  font-size: 18px;
   color: var(--text-subtle);
+}
+
+.settings-link .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.settings-link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.settings-link-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .settings-section {

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- macOS overlay title bar with transparent webview; grid extends into the title bar zone — macOS 沉浸式 overlay 标题栏与透明 WebView，网格延伸至标题栏区域
+- **Fit visible area** (`F`, double-click): reframes within unobstructed viewport (panels and dock) — **适应可见区域**：在扣除侧栏与底部工具栏后的区域重新框选
+- Dedicated fit control in the bottom dock — 底部工具栏新增「适应」按钮
+
+### Changed
+
+- Bottom dock regrouped: scene tools (grid, axes) on the left, camera tools (fit, zoom, reset) on the right — 底部工具栏重排：场景在左、相机在右
+- Fit vs reset tooltips clarified (visible area vs initial load pose) — 区分「适应可见区域」与「恢复打开时视角」
+- Settings GitHub link uses the GitHub mark icon — 设置页 GitHub 链接改用 GitHub 图标
+
+### Fixed
+
+- Fit no longer shrinks the model on repeated clicks — 修复重复「适应」导致模型越变越小
+- Preview grid no longer clipped at the sides when fitting with panels open — 修复适应视口时网格地面左右被裁切
+
+### Removed
+
+- macOS window vibrancy (replaced by HTML-painted background under transparent window) — 移除 macOS 毛玻璃，改为透明窗口 + HTML 背景
+
 ## [0.1.0] - 2026-05-30
 
 First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发行版。

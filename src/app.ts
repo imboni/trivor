@@ -21,6 +21,7 @@ import {
   openModelDialog,
   setLocale,
 } from "./bridge";
+import { mountOverlayTitlebar } from "./titlebar";
 import {
   gltfLoadHint,
   isModelPath,
@@ -60,10 +61,10 @@ import {
 import { AxisOrientationWidget } from "./axis-widget";
 import { invalidateSceneThemeCache } from "./scene-theme";
 import { flushUi } from "./ui";
-import { syncSceneGuides as applySceneGuidesToModel } from "./scene-guides";
 import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
 import { UpdatePreferencesStore } from "./update-preferences";
 import { ModelViewport, type SavedCamera } from "./viewer";
+import { measureViewportInsets } from "./viewport-framing";
 
 type LocalePref = "en" | "zh-Hans" | "system";
 
@@ -96,6 +97,7 @@ export class App {
   private clearConfirmOpen = false;
   private explorerCollapsed = false;
   private inspectorCollapsed = false;
+  private viewportInsetsRaf = 0;
   private cinemaMode = false;
   private cinemaRotatePaused = false;
   private cinemaIdleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,6 +142,7 @@ export class App {
     this.shell.className = "shell";
     this.shell.innerHTML = SHELL_HTML;
     root.appendChild(this.shell);
+    mountOverlayTitlebar(this.shell);
 
     const pick = (sel: string) => this.shell.querySelector(sel) as HTMLElement;
     this.els = {
@@ -157,6 +160,7 @@ export class App {
       viewportDock: pick("[data-bind=viewport-dock]"),
       toolZoomOut: pick("[data-action=zoom-out]"),
       toolZoomIn: pick("[data-action=zoom-in]"),
+      toolFitView: pick("[data-action=fit-view]"),
       toolResetView: pick("[data-action=reset-view]"),
       toolCinema: pick("[data-action=cinema-mode]"),
       toolPreviewGrid: pick("[data-action=toggle-preview-grid]"),
@@ -246,6 +250,7 @@ export class App {
     this.bindCinemaIdleResume();
     this.bindCinemaChromeIdle();
     this.bindParallax();
+    window.addEventListener("resize", () => this.scheduleFramingInsets(), { passive: true });
   }
 
   async start(): Promise<void> {
@@ -404,7 +409,7 @@ export class App {
     }
 
     this.els.viewportHost.addEventListener("dblclick", () => {
-      if (this.phase === "ready") void this.viewport.fit();
+      if (this.phase === "ready") void this.fitView();
     });
 
     this.els.toolZoomIn.addEventListener("click", () => {
@@ -413,6 +418,10 @@ export class App {
     });
     this.els.toolZoomOut.addEventListener("click", () => {
       this.viewport.zoomOut();
+      this.viewport.focus();
+    });
+    this.els.toolFitView.addEventListener("click", () => {
+      void this.fitView();
       this.viewport.focus();
     });
     this.els.toolResetView.addEventListener("click", () => {
@@ -708,6 +717,8 @@ export class App {
     this.els.toolZoomOut.setAttribute("aria-label", this.ui.tool_zoom_out);
     this.els.toolZoomIn.title = this.ui.tool_zoom_in;
     this.els.toolZoomIn.setAttribute("aria-label", this.ui.tool_zoom_in);
+    this.els.toolFitView.title = this.ui.tool_fit_view;
+    this.els.toolFitView.setAttribute("aria-label", this.ui.tool_fit_view);
     this.els.toolResetView.title = this.ui.tool_reset_view;
     this.els.toolResetView.setAttribute("aria-label", this.ui.tool_reset_view);
     this.els.toolCinema.title = this.ui.tool_cinema;
@@ -1017,7 +1028,40 @@ export class App {
 
   private async fitView(): Promise<void> {
     if (this.phase !== "ready") return;
+    this.syncFramingInsets();
     await this.viewport.fit();
+  }
+
+  private viewportFramingContext() {
+    const interactive = this.phase === "ready";
+    const showModelPanels =
+      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    const hasLibrary = showModelPanels && this.models.length > 0;
+    return {
+      cinemaMode: this.cinemaMode,
+      showDock: interactive && !this.cinemaMode,
+      hasLibrary,
+      explorerCollapsed: this.explorerCollapsed,
+      showInspector: showModelPanels,
+      inspectorCollapsed: this.inspectorCollapsed,
+      showInspectorTab:
+        showModelPanels && this.inspectorCollapsed && !this.cinemaMode,
+      showAxisWidget: this.phase === "ready",
+    };
+  }
+
+  private syncFramingInsets(): void {
+    this.viewport.setFramingInsets(
+      measureViewportInsets(this.els.viewportHost, this.shell, this.viewportFramingContext()),
+    );
+  }
+
+  private scheduleFramingInsets(): void {
+    if (this.viewportInsetsRaf) return;
+    this.viewportInsetsRaf = requestAnimationFrame(() => {
+      this.viewportInsetsRaf = 0;
+      this.syncFramingInsets();
+    });
   }
 
   private bindCinemaChromeIdle(): void {
@@ -1825,6 +1869,7 @@ export class App {
       this.loadPercent = 92;
       this.paintOverlay();
 
+      this.syncFramingInsets();
       await this.viewport.load(assetUrl, this.ui.error_viewer_load);
 
       if (token !== this.loadToken) return;
@@ -1927,6 +1972,7 @@ export class App {
     this.paintSidebar();
     this.paintOverlay();
     this.paintInspector();
+    this.scheduleFramingInsets();
   }
 
   private paintInspector(): void {
@@ -2298,6 +2344,8 @@ function escapeAttr(text: string): string {
 }
 
 const SHELL_HTML = `
+  <div class="titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
+
   <div class="viewport-bg" aria-hidden="true">
     <div class="perspective-scene">
       <div class="perspective-grid perspective-grid--far"></div>
@@ -2372,26 +2420,45 @@ const SHELL_HTML = `
   </aside>
 
   <footer class="bottom-dock glass-capsule" data-bind="viewport-dock">
-    <button type="button" class="dock-btn" data-action="zoom-out" aria-label="">
-      <span class="material-symbols-outlined">zoom_out</span>
-    </button>
-    <button type="button" class="dock-btn" data-action="zoom-in" aria-label="">
-      <span class="material-symbols-outlined">zoom_in</span>
-    </button>
-    <button type="button" class="dock-btn" data-action="reset-view" aria-label="">
-      <span class="material-symbols-outlined">sync</span>
-    </button>
+    <div class="dock-group">
+      <button type="button" class="dock-btn" data-action="toggle-preview-grid" aria-label="">
+        <span class="material-symbols-outlined">grid_on</span>
+      </button>
+      <button type="button" class="dock-btn" data-action="toggle-scene-guides" aria-label="">
+        <span class="dock-icon-axes" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="13" r="1.4" fill="currentColor" opacity="0.55"/>
+            <path d="M12 13V5.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+            <path d="M12 5.5L10.2 8.2M12 5.5l1.8 2.7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 13H19" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+            <path d="M19 13l-2.4-1.5M19 13l-2.4 1.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 13L6.5 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+            <path d="M6.5 17.5l1.9-2.2M6.5 17.5l2.8.3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </button>
+    </div>
     <span class="dock-divider" aria-hidden="true"></span>
-    <button type="button" class="dock-btn" data-action="cinema-mode" aria-label="">
-      <span class="material-symbols-outlined">360</span>
-    </button>
+    <div class="dock-group">
+      <button type="button" class="dock-btn" data-action="cinema-mode" aria-label="">
+        <span class="material-symbols-outlined">360</span>
+      </button>
+    </div>
     <span class="dock-divider" aria-hidden="true"></span>
-    <button type="button" class="dock-btn" data-action="toggle-preview-grid" aria-label="">
-      <span class="material-symbols-outlined">grid_on</span>
-    </button>
-    <button type="button" class="dock-btn" data-action="toggle-scene-guides" aria-label="">
-      <span class="material-symbols-outlined">open_with</span>
-    </button>
+    <div class="dock-group">
+      <button type="button" class="dock-btn" data-action="fit-view" aria-label="">
+        <span class="material-symbols-outlined">fit_screen</span>
+      </button>
+      <button type="button" class="dock-btn" data-action="zoom-out" aria-label="">
+        <span class="material-symbols-outlined">zoom_out</span>
+      </button>
+      <button type="button" class="dock-btn" data-action="zoom-in" aria-label="">
+        <span class="material-symbols-outlined">zoom_in</span>
+      </button>
+      <button type="button" class="dock-btn" data-action="reset-view" aria-label="">
+        <span class="material-symbols-outlined">restart_alt</span>
+      </button>
+    </div>
   </footer>
 
   <div class="cinema-controls">
@@ -2504,7 +2571,11 @@ const SHELL_HTML = `
           <label data-bind="resources-label"></label>
           <div class="settings-links">
             <button type="button" class="settings-link" data-action="open-github">
-              <span class="material-symbols-outlined" aria-hidden="true">code</span>
+              <span class="settings-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path fill="currentColor" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+                </svg>
+              </span>
               <span data-bind="link-github"></span>
             </button>
             <button type="button" class="settings-link" data-action="open-releases">

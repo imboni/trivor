@@ -1,6 +1,7 @@
 import "@google/model-viewer";
 
 import { syncSceneGuides as applySceneGuidesToModel, type SceneGuideSyncOptions } from "./scene-guides";
+import { adjustCameraForViewportInsets, type ViewportInsets } from "./viewport-framing";
 
 interface SphericalPosition {
   theta: number;
@@ -232,6 +233,8 @@ export class ModelViewport {
   readonly host: HTMLElement;
 
   private savedCamera: SavedCamera | null = null;
+  private framingInsets: ViewportInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  private fitInFlight = false;
   private loadGen = 0;
   private loadAbort?: AbortController;
   private cursorHidden = false;
@@ -266,6 +269,10 @@ export class ModelViewport {
 
   focus(): void {
     this.host.focus();
+  }
+
+  setFramingInsets(insets: ViewportInsets): void {
+    this.framingInsets = insets;
   }
 
   /** Exhibition-style lighting and ground shadow when previewing a model. */
@@ -342,8 +349,7 @@ export class ModelViewport {
       try {
         await Promise.race([
           (async () => {
-            await mv.updateFraming();
-            await mv.updateComplete;
+            await this.reframeToVisibleArea(mv);
             if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
             await waitForCameraSettled(mv);
           })(),
@@ -450,10 +456,13 @@ export class ModelViewport {
 
   /** Re-frame to bounds (double-click / F). Does not change the stored initial pose. */
   async fit(): Promise<void> {
-    const mv = this.mv;
-    if (!mv.src) return;
-    mv.cameraTarget = "auto auto auto";
-    await mv.updateFraming();
+    if (this.fitInFlight || !this.mv.src) return;
+    this.fitInFlight = true;
+    try {
+      await this.reframeToVisibleArea(this.mv);
+    } finally {
+      this.fitInFlight = false;
+    }
   }
 
   /** Restore the pose captured when this model finished loading. */
@@ -484,6 +493,16 @@ export class ModelViewport {
       mv.fieldOfView = formatFieldOfView(fov);
     }
     mv.cameraOrbit = formatOrbit(orbit);
+  }
+
+  private async reframeToVisibleArea(mv: ModelViewerElement): Promise<void> {
+    mv.cameraTarget = "auto auto auto";
+    mv.cameraOrbit = "auto auto auto";
+    mv.fieldOfView = "auto";
+    await mv.updateFraming();
+    await mv.updateComplete;
+    adjustCameraForViewportInsets(mv, this.framingInsets);
+    mv.jumpCameraToGoal();
   }
 
   private applySavedCamera(): void {

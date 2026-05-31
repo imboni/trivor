@@ -9,6 +9,22 @@
   overflow: hidden;
 }
 
+/* macOS overlay title bar — drag / double-click zoom (see src/titlebar.ts) */
+.titlebar-drag {
+  display: none;
+}
+
+html.is-macos-overlay-titlebar .titlebar-drag {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 70px;
+  right: 0;
+  height: var(--titlebar-inset);
+  z-index: 200;
+  cursor: default;
+}
+
 /* —— Viewport background —— */
 
 .viewport-bg {
@@ -39,9 +55,9 @@
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    var(--viewport-bg-top) 0%,
-    color-mix(in srgb, var(--viewport-bg-top) 40%, transparent) 26%,
-    transparent 48%
+    color-mix(in srgb, var(--viewport-bg-top) 55%, transparent) 0%,
+    color-mix(in srgb, var(--viewport-bg-top) 18%, transparent) 18%,
+    transparent 42%
   );
 }
 
@@ -361,7 +377,7 @@
 .explorer-drawer {
   position: absolute;
   left: calc(var(--shell-pad) + 72px);
-  top: var(--shell-pad);
+  top: var(--content-top);
   bottom: var(--panel-bottom-bound);
   z-index: 45;
   width: var(--explorer-w);
@@ -525,7 +541,7 @@
 .inspector-panel {
   position: absolute;
   right: var(--shell-pad);
-  top: var(--shell-pad);
+  top: var(--content-top);
   bottom: var(--panel-bottom-bound);
   z-index: 50;
   width: var(--inspector-w);
@@ -623,9 +639,9 @@
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 20px;
   height: var(--bottom-dock-outer-h);
-  padding: 0 32px;
+  padding: 0 28px;
   box-sizing: border-box;
   border-radius: var(--radius-full);
   opacity: 0;
@@ -636,6 +652,12 @@
     visibility var(--motion-slow) var(--ease),
     translate var(--motion-slow) var(--ease-spring);
   pointer-events: none;
+}
+
+.dock-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .bottom-dock.is-visible {
@@ -763,7 +785,7 @@ html.is-cinema-cursor-hidden model-viewer {
 .panel-expand-tab {
   position: absolute;
   right: var(--shell-pad);
-  top: var(--shell-pad);
+  top: var(--content-top);
   bottom: var(--panel-bottom-bound);
   z-index: 46;
   display: inline-flex;

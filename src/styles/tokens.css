@@ -33,7 +33,7 @@
   --panel-bottom-bound: calc(
     var(--shell-pad) + var(--axis-widget-size) + var(--panel-axis-gap)
   );
-  --panel-max-h: calc(100vh - var(--shell-pad) - var(--panel-bottom-bound));
+  --panel-max-h: calc(100vh - var(--content-top) - var(--panel-bottom-bound));
   --scrollbar-size: 4px;
   --bottom-dock-outer-h: 60px;
   --axis-widget-size: 68px;
@@ -42,6 +42,8 @@
   --cinema-controls-h: calc(var(--cinema-ctrl-size) * 2 + var(--cinema-ctrl-gap));
   --chrome-gap: 12px;
   --rail-outer-w: 64px;
+  --titlebar-inset: 0px;
+  --content-top: var(--shell-pad);
 }
 
 :root[data-theme="dark"] {
@@ -199,7 +201,17 @@
 html {
   width: 100%;
   height: 100%;
-  background: var(--bg-app);
+  background: var(--viewport-bg-top);
+}
+
+html.is-macos-overlay-titlebar {
+  --titlebar-inset: 52px;
+  --content-top: calc(var(--shell-pad) + var(--titlebar-inset));
+  background: transparent;
+}
+
+html.is-macos-overlay-titlebar body {
+  background: transparent;
 }
 
 body {
@@ -225,7 +237,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--bg-app);
+  background: transparent;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -288,6 +300,15 @@ button:focus-visible {
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
   box-shadow: var(--glass-shadow);
+}
+
+html.is-macos-overlay-titlebar button,
+html.is-macos-overlay-titlebar .glass-capsule,
+html.is-macos-overlay-titlebar input,
+html.is-macos-overlay-titlebar select,
+html.is-macos-overlay-titlebar textarea,
+html.is-macos-overlay-titlebar .viewport-host {
+  -webkit-app-region: no-drag;
 }
 
 .scroll-subtle {
