@@ -1,7 +1,9 @@
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
-use tauri::{async_runtime, Emitter, State, WebviewWindow};
+use tauri::{async_runtime, Emitter, Manager, State, WebviewWindow};
 use trivor_core::{LocalePreference, ModelListEntry, SceneSummary, ThemePreference};
 use trivor_i18n::{I18n, MessageKey, UiBundle};
 use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, LoadError};
@@ -356,6 +358,112 @@ fn up_to_date_result(current_version: String) -> UpdateCheckResult {
         update_available: false,
         release_page: None,
         download_url: None,
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct DownloadProgress {
+    pub percent: u8,
+}
+
+fn dmg_filename_from_url(url: &str) -> String {
+    url.rsplit('/')
+        .next()
+        .filter(|name| name.ends_with(".dmg"))
+        .map(str::to_string)
+        .unwrap_or_else(|| "Trivor-update.dmg".to_string())
+}
+
+fn download_update_blocking(url: &str, window: &WebviewWindow) -> Result<String, String> {
+    let response = ureq::get(url)
+        .set("Accept", "application/octet-stream")
+        .set("User-Agent", "Trivor")
+        .call()
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if response.status() != 200 {
+        return Err(format!("Download failed with status {}", response.status()));
+    }
+
+    let total = response
+        .header("Content-Length")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let file_name = dmg_filename_from_url(url);
+    let dir = window
+        .app_handle()
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("updates");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(file_name);
+
+    let mut reader = response.into_reader();
+    let mut file = File::create(&dest).map_err(|e| e.to_string())?;
+    let mut buffer = [0u8; 8192];
+    let mut downloaded = 0u64;
+    let mut last_pct = 255u8;
+
+    loop {
+        let read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+        downloaded += read as u64;
+        if total > 0 {
+            let pct = ((downloaded.saturating_mul(100)) / total).min(100) as u8;
+            if pct != last_pct {
+                last_pct = pct;
+                let _ = window.emit("update-download-progress", DownloadProgress { percent: pct });
+            }
+        }
+    }
+
+    let _ = window.emit("update-download-progress", DownloadProgress { percent: 100 });
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn download_update(url: String, window: WebviewWindow) -> Result<String, String> {
+    let window = window.clone();
+    async_runtime::spawn_blocking(move || download_update_blocking(&url, &window))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn open_downloaded_update(path: String) -> Result<(), String> {
+    let path = Path::new(&path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", path.display()));
+    }
+
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg(path)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Failed to open installer".to_string())
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let status = reveal_path_in_file_manager(path).map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Failed to open installer".to_string())
+        }
     }
 }
 

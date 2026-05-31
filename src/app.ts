@@ -3,17 +3,20 @@ import { listen } from "@tauri-apps/api/event";
 import {
   checkForUpdates,
   completeStartup,
+  downloadUpdate,
   getAppInfo,
   getUiBundle,
   listModelsInFolder,
   loadModel,
   normalizeModelPath,
+  openDownloadedUpdate,
   openExternalUrl,
   pathKind,
   revealModelInFolder,
   resolveViewerModelPath,
   onLoadProgress,
   onPackProgress,
+  onUpdateDownloadProgress,
   openFolderDialog,
   openModelDialog,
   setLocale,
@@ -59,11 +62,13 @@ import { invalidateSceneThemeCache } from "./scene-theme";
 import { flushUi } from "./ui";
 import { syncSceneGuides as applySceneGuidesToModel } from "./scene-guides";
 import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
+import { UpdatePreferencesStore } from "./update-preferences";
 import { ModelViewport, type SavedCamera } from "./viewer";
 
 type LocalePref = "en" | "zh-Hans" | "system";
 
 const FALLBACK_REPOSITORY = "https://github.com/imboni/trivor";
+const DISMISSED_UPDATE_KEY = "trivor:dismissed-update-version";
 
 function fallbackAppInfo(): AppInfo {
   return {
@@ -111,13 +116,18 @@ export class App {
   private libraryRefreshing = false;
   private dialogOpen = false;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private setGridParallaxDormant: ((dormant: boolean) => void) | null = null;
   private appInfo: AppInfo | null = null;
   private updateState: "idle" | "checking" | "uptodate" | "available" | "error" = "idle";
   private updateResult: UpdateCheckResult | null = null;
+  private updateBannerVisible = false;
+  private updateDownloadState: "idle" | "downloading" = "idle";
+  private updateDownloadPercent = 0;
   private readonly shortcuts = new ShortcutStore();
   private shortcutRecording: ShortcutId | null = null;
   private readonly sceneOptions = new SceneOptionsStore();
+  private readonly updatePreferences = new UpdatePreferencesStore();
 
   private readonly shell: HTMLElement;
   private readonly viewport: ModelViewport;
@@ -177,6 +187,8 @@ export class App {
       shortcutsList: pick("[data-bind=shortcuts-list]"),
       sceneLabel: pick("[data-bind=scene-label]"),
       sceneOptionsList: pick("[data-bind=scene-options-list]"),
+      updatesLabel: pick("[data-bind=updates-label]"),
+      updateSettingsList: pick("[data-bind=update-settings-list]"),
       aboutLabel: pick("[data-bind=about-label]"),
       aboutName: pick("[data-bind=about-name]"),
       aboutVersion: pick("[data-bind=about-version]"),
@@ -192,6 +204,13 @@ export class App {
       updateStatus: pick("[data-bind=update-status]"),
       updateStatusIcon: pick("[data-bind=update-status-icon]"),
       updateStatusText: pick("[data-bind=update-status-text]"),
+      updateBanner: pick("[data-bind=update-banner]"),
+      updateBannerTitle: pick("[data-bind=update-banner-title]"),
+      updateBannerBody: pick("[data-bind=update-banner-body]"),
+      updateDownloadProgress: pick("[data-bind=update-download-progress]"),
+      updateDownloadProgressBar: pick("[data-bind=update-download-progress-bar]"),
+      updateBannerDownloadLabel: pick("[data-bind=update-banner-download-label]"),
+      updateBannerDismissBtn: pick("[data-action=dismiss-update-banner]"),
       linkGithub: pick("[data-bind=link-github]"),
       linkReleases: pick("[data-bind=link-releases]"),
       linkIssues: pick("[data-bind=link-issues]"),
@@ -202,6 +221,8 @@ export class App {
       perspectiveGlow: pick(".perspective-glow"),
       viewportBg: pick(".viewport-bg"),
       toast: pick("[data-bind=toast]"),
+      toastIcon: pick("[data-bind=toast-icon]"),
+      toastText: pick("[data-bind=toast-text]"),
       clearConfirmPop: pick("[data-bind=clear-confirm]"),
       clearConfirmMessage: pick("[data-bind=clear-confirm-message]"),
       clearConfirmCancel: pick("[data-action=clear-library-cancel]"),
@@ -262,6 +283,7 @@ export class App {
     }
     document.addEventListener("keydown", (e) => this.onKey(e));
     this.paint();
+    void this.checkForUpdatesOnStartup();
   }
 
   private bindSettingsActions(): void {
@@ -277,7 +299,7 @@ export class App {
     };
 
     bind("check-updates", () => void this.handleCheckUpdates(false));
-    bind("download-update", () => void this.openUpdateDownload());
+    bind("download-update", () => void this.downloadUpdateInApp());
     bind("open-github", () => void this.openRepository());
     bind("open-releases", () => void this.openReleaseNotes());
     bind("open-issues", () => void this.openIssueTracker());
@@ -373,6 +395,14 @@ export class App {
     });
     this.bindSettingsActions();
 
+    this.els.updateBannerDismissBtn?.addEventListener("click", () => this.dismissUpdateBanner());
+    for (const el of this.shell.querySelectorAll<HTMLElement>('[data-action="download-update-in-app"]')) {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        void this.downloadUpdateInApp();
+      });
+    }
+
     this.els.viewportHost.addEventListener("dblclick", () => {
       if (this.phase === "ready") void this.viewport.fit();
     });
@@ -415,6 +445,14 @@ export class App {
       this.applySceneOptions();
       if (this.settingsOpen) this.syncSceneSettingsUi();
       this.paint();
+    });
+    this.els.updateSettingsList.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-update-setting]");
+      if (!btn) return;
+      const key = btn.dataset.updateSetting;
+      if (key !== "autoCheckOnStartup") return;
+      this.updatePreferences.toggleAutoCheckOnStartup();
+      this.syncUpdateSettingsUi();
     });
     this.els.cinemaExit.addEventListener("click", () => {
       this.setCinemaChromeIdle(false);
@@ -651,10 +689,15 @@ export class App {
     this.els.shortcutsResetAll.setAttribute("aria-label", this.ui.shortcuts_reset_all);
     this.els.sceneLabel.textContent = this.ui.settings_viewer_scene;
     this.paintSceneSettings(true);
+    this.els.updatesLabel.textContent = this.ui.settings_updates;
+    this.paintUpdateSettings(true);
     this.els.aboutLabel.textContent = this.ui.settings_about;
     this.els.resourcesLabel.textContent = this.ui.settings_resources;
     this.els.checkUpdatesLabel.textContent = this.ui.check_for_updates;
     this.els.downloadUpdateLabel.textContent = this.ui.download_update;
+    this.els.updateBannerDownloadLabel.textContent = this.ui.download_update;
+    this.els.updateBannerDismissBtn?.setAttribute("aria-label", this.ui.update_dismiss);
+    this.paintUpdateBanner();
     this.els.linkGithub.textContent = this.ui.view_on_github;
     this.els.linkReleases.textContent = this.ui.view_release_notes;
     this.els.linkIssues.textContent = this.ui.report_issue;
@@ -899,6 +942,47 @@ export class App {
           </button>`;
       })
       .join("");
+  }
+
+  private paintUpdateSettings(rebuild = false): void {
+    const opts = this.updatePreferences.get();
+    if (!rebuild && this.els.updateSettingsList.querySelector("[data-update-setting]")) {
+      this.syncUpdateSettingsUi(opts);
+      return;
+    }
+    const label = this.ui.auto_check_updates_on_launch;
+    const on = opts.autoCheckOnStartup;
+    this.els.updateSettingsList.innerHTML = `
+      <button
+        type="button"
+        class="settings-scene-row"
+        data-update-setting="autoCheckOnStartup"
+        role="switch"
+        aria-checked="${on ? "true" : "false"}"
+        title="${escapeAttr(label)}"
+        aria-label="${escapeAttr(label)}"
+      >
+        <span class="settings-scene-row-label">
+          <span class="material-symbols-outlined settings-scene-row-icon" aria-hidden="true">update</span>
+          <span class="settings-scene-row-text">${escapeHtml(label)}</span>
+        </span>
+        <span class="settings-scene-row-actions">
+          <span class="settings-scene-switch" aria-hidden="true">
+            <span class="settings-scene-switch-knob"></span>
+          </span>
+        </span>
+      </button>`;
+  }
+
+  private syncUpdateSettingsUi(
+    opts: ReturnType<UpdatePreferencesStore["get"]> = this.updatePreferences.get(),
+  ): void {
+    for (const btn of this.els.updateSettingsList.querySelectorAll<HTMLElement>(
+      "[data-update-setting]",
+    )) {
+      if (btn.dataset.updateSetting !== "autoCheckOnStartup") continue;
+      btn.setAttribute("aria-checked", opts.autoCheckOnStartup ? "true" : "false");
+    }
   }
 
   private applySceneOptions(): void {
@@ -1349,15 +1433,38 @@ export class App {
     this.showToast(message);
   }
 
-  private showToast(message: string): void {
+  private showToast(message: string, tone: "default" | "success" | "error" = "default"): void {
     const el = this.els.toast;
-    el.textContent = message;
+    const icon = tone === "success" ? "check_circle" : tone === "error" ? "error_outline" : "info";
+    el.classList.remove("is-success", "is-error");
+    if (tone === "success") el.classList.add("is-success");
+    if (tone === "error") el.classList.add("is-error");
+    this.els.toastIcon.textContent = icon;
+    this.els.toastText.textContent = message;
     el.classList.add("is-visible");
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => {
       el.classList.remove("is-visible");
       this.toastTimer = null;
     }, 4500);
+  }
+
+  private clearUpdateStatusTimer(): void {
+    if (this.updateStatusTimer) {
+      clearTimeout(this.updateStatusTimer);
+      this.updateStatusTimer = null;
+    }
+  }
+
+  private scheduleUpdateStatusClear(): void {
+    this.clearUpdateStatusTimer();
+    this.updateStatusTimer = setTimeout(() => {
+      this.updateStatusTimer = null;
+      if (this.updateState === "checking") return;
+      this.updateState = "idle";
+      this.updateResult = null;
+      this.paintAboutSection();
+    }, 60_000);
   }
 
   private formatVersionLine(): string {
@@ -1387,11 +1494,13 @@ export class App {
     }
 
     const checking = this.updateState === "checking";
+    const downloading = this.updateDownloadState === "downloading";
     checkLabel.textContent = checking ? this.ui.update_checking : this.ui.check_for_updates;
     checkIcon.classList.toggle("hidden", checking);
-    checkBtn.disabled = checking;
+    checkBtn.disabled = checking || downloading;
     checkBtn.classList.toggle("is-loading", checking);
     downloadBtn.classList.toggle("hidden", this.updateState !== "available");
+    downloadBtn.disabled = downloading;
 
     const showHint =
       this.updateState === "uptodate" ||
@@ -1413,11 +1522,13 @@ export class App {
         break;
       case "available":
         hintEl.classList.add("is-info");
-        hintIcon.textContent = "system_update";
-        hintText.textContent = this.ui.update_available.replace(
-          "{version}",
-          this.updateResult?.latest_version ?? "",
-        );
+        hintIcon.textContent = downloading ? "download" : "system_update";
+        hintText.textContent = downloading
+          ? this.ui.update_downloading.replace("{percent}", String(this.updateDownloadPercent))
+          : this.ui.update_available.replace(
+              "{version}",
+              this.updateResult?.latest_version ?? "",
+            );
         break;
       case "error":
         hintEl.classList.add("is-error");
@@ -1431,8 +1542,106 @@ export class App {
     }
   }
 
-  private async handleCheckUpdates(fromMenu: boolean): Promise<void> {
+  private async checkForUpdatesOnStartup(): Promise<void> {
+    if (!this.updatePreferences.get().autoCheckOnStartup) return;
+    await this.handleCheckUpdates(false, { silent: true });
+  }
+
+  private showUpdateBannerIfNeeded(): void {
+    const version = this.updateResult?.latest_version;
+    if (!version || this.updateState !== "available") {
+      this.updateBannerVisible = false;
+      this.paintUpdateBanner();
+      return;
+    }
+    const dismissed = localStorage.getItem(DISMISSED_UPDATE_KEY);
+    this.updateBannerVisible = dismissed !== version;
+    this.paintUpdateBanner();
+  }
+
+  private paintUpdateBanner(): void {
+    const banner = this.els.updateBanner;
+    const title = this.els.updateBannerTitle;
+    const body = this.els.updateBannerBody;
+    const progress = this.els.updateDownloadProgress;
+    const progressBar = this.els.updateDownloadProgressBar;
+    if (!banner || !title || !body || !progress || !progressBar) return;
+
+    const version = this.updateResult?.latest_version ?? "";
+    const downloading = this.updateDownloadState === "downloading";
+    banner.classList.toggle("hidden", !this.updateBannerVisible);
+    banner.classList.toggle("is-downloading", downloading);
+    title.textContent = this.ui.update_banner_title.replace("{version}", version);
+    body.textContent = downloading
+      ? this.ui.update_downloading.replace("{percent}", String(this.updateDownloadPercent))
+      : this.ui.update_banner_body;
+    progress.classList.toggle("hidden", !downloading);
+    progressBar.style.width = `${this.updateDownloadPercent}%`;
+
+    for (const el of this.shell.querySelectorAll<HTMLButtonElement>('[data-action="download-update-in-app"]')) {
+      el.disabled = downloading;
+    }
+    if (this.els.updateBannerDismissBtn) {
+      (this.els.updateBannerDismissBtn as HTMLButtonElement).disabled = downloading;
+    }
+  }
+
+  private dismissUpdateBanner(): void {
+    const version = this.updateResult?.latest_version;
+    if (version) localStorage.setItem(DISMISSED_UPDATE_KEY, version);
+    this.updateBannerVisible = false;
+    this.paintUpdateBanner();
+  }
+
+  private async openUpdateInBrowser(): Promise<void> {
+    const url = this.updateResult?.release_page ?? this.updateResult?.download_url ?? this.appMeta().releases_url;
+    await this.openExternal(url);
+  }
+
+  private async downloadUpdateInApp(): Promise<void> {
+    if (this.updateDownloadState === "downloading") return;
+
+    const url = this.updateResult?.download_url;
+    if (!url) {
+      await this.openUpdateInBrowser();
+      return;
+    }
+
+    this.updateDownloadState = "downloading";
+    this.updateDownloadPercent = 0;
+    this.updateBannerVisible = true;
+    this.paintUpdateBanner();
+    this.paintAboutSection();
+
+    const unlisten = await onUpdateDownloadProgress((percent) => {
+      this.updateDownloadPercent = percent;
+      this.paintUpdateBanner();
+      this.paintAboutSection();
+    });
+
+    try {
+      const path = await downloadUpdate(url);
+      await openDownloadedUpdate(path);
+      this.showToast(this.ui.update_download_complete, "success");
+      this.dismissUpdateBanner();
+    } catch {
+      this.showToast(this.ui.update_download_failed, "error");
+      await this.openUpdateInBrowser();
+    } finally {
+      unlisten();
+      this.updateDownloadState = "idle";
+      this.paintUpdateBanner();
+      this.paintAboutSection();
+    }
+  }
+
+  private async handleCheckUpdates(
+    fromMenu: boolean,
+    options: { silent?: boolean } = {},
+  ): Promise<void> {
+    const silent = options.silent ?? false;
     if (this.updateState === "checking") return;
+    this.clearUpdateStatusTimer();
     this.updateState = "checking";
     this.paintAboutSection();
     try {
@@ -1446,11 +1655,21 @@ export class App {
             : this.ui.update_up_to_date,
         );
       }
+      if (result.update_available) {
+        this.showUpdateBannerIfNeeded();
+      }
     } catch {
       this.updateState = "error";
-      this.showToast(this.ui.update_check_failed);
+      if (!silent) this.showToast(this.ui.update_check_failed);
     } finally {
       this.paintAboutSection();
+      if (
+        this.updateState === "uptodate" ||
+        this.updateState === "available" ||
+        this.updateState === "error"
+      ) {
+        this.scheduleUpdateStatusClear();
+      }
     }
   }
 
@@ -1482,14 +1701,6 @@ export class App {
   private openLicense(): Promise<void> {
     const repo = this.appMeta().repository;
     return this.openExternal(repo ? `${repo}/blob/main/LICENSE` : null);
-  }
-
-  private openUpdateDownload(): Promise<void> {
-    const url =
-      this.updateResult?.download_url ??
-      this.updateResult?.release_page ??
-      this.appMeta().releases_url;
-    return this.openExternal(url);
   }
 
   private modelListKey(): string {
@@ -1666,6 +1877,7 @@ export class App {
       this.paintAboutSection();
       this.paintShortcutsSection();
       this.paintSceneSettings();
+      this.paintUpdateSettings();
     }
     this.els.clearConfirmPop.classList.toggle("hidden", !this.clearConfirmOpen);
     this.els.clearLibrary.classList.toggle("is-active", this.clearConfirmOpen);
@@ -2195,7 +2407,34 @@ const SHELL_HTML = `
     <span class="material-symbols-outlined">chevron_left</span>
   </button>
 
-  <div class="app-toast glass-capsule" data-bind="toast" role="status" aria-live="polite"></div>
+  <div class="update-banner glass-capsule hidden" data-bind="update-banner" role="status" aria-live="polite">
+    <span class="update-banner-icon" aria-hidden="true">
+      <span class="material-symbols-outlined">new_releases</span>
+    </span>
+    <div class="update-banner-copy">
+      <p class="update-banner-title" data-bind="update-banner-title"></p>
+      <p class="update-banner-body" data-bind="update-banner-body"></p>
+      <div class="update-banner-progress hidden" data-bind="update-download-progress">
+        <div class="update-banner-progress-track">
+          <div class="update-banner-progress-bar" data-bind="update-download-progress-bar"></div>
+        </div>
+      </div>
+    </div>
+    <button type="button" class="update-banner-action" data-action="download-update-in-app">
+      <span class="material-symbols-outlined" aria-hidden="true">download</span>
+      <span data-bind="update-banner-download-label"></span>
+    </button>
+    <button type="button" class="update-banner-dismiss" data-action="dismiss-update-banner" aria-label="">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
+  </div>
+
+  <div class="app-toast glass-capsule" data-bind="toast" role="status" aria-live="polite">
+    <span class="app-toast-icon" aria-hidden="true">
+      <span class="material-symbols-outlined" data-bind="toast-icon"></span>
+    </span>
+    <span class="app-toast-text" data-bind="toast-text"></span>
+  </div>
 
   <div class="settings-backdrop hidden" data-bind="settings">
     <div class="settings-panel glass-capsule" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
@@ -2228,6 +2467,12 @@ const SHELL_HTML = `
           <label data-bind="scene-label"></label>
           <div class="settings-scene">
             <div class="settings-scene-grid" data-bind="scene-options-list"></div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <label data-bind="updates-label"></label>
+          <div class="settings-scene">
+            <div class="settings-scene-grid" data-bind="update-settings-list"></div>
           </div>
         </div>
         <div class="settings-divider" aria-hidden="true"></div>

@@ -50,6 +50,8 @@ pub fn run() {
             commands::reveal_in_finder,
             commands::get_app_info,
             commands::check_for_updates,
+            commands::download_update,
+            commands::open_downloaded_update,
             open_external::complete_startup,
             open_external::path_kind,
         ])

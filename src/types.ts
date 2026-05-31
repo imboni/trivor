@@ -16,6 +16,8 @@ export interface UiBundle {
   menu_view_on_github: string;
   menu_report_issue: string;
   settings_about: string;
+  settings_updates: string;
+  auto_check_updates_on_launch: string;
   settings_resources: string;
   check_for_updates: string;
   update_checking: string;
@@ -24,6 +26,12 @@ export interface UiBundle {
   update_check_failed: string;
   open_link_failed: string;
   download_update: string;
+  update_banner_title: string;
+  update_banner_body: string;
+  update_dismiss: string;
+  update_downloading: string;
+  update_download_complete: string;
+  update_download_failed: string;
   view_release_notes: string;
   report_issue: string;
   view_on_github: string;

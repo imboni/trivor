@@ -70,6 +70,20 @@ export function checkForUpdates(): Promise<UpdateCheckResult> {
   return invoke("check_for_updates");
 }
 
+export function downloadUpdate(url: string): Promise<string> {
+  return invoke("download_update", { url });
+}
+
+export function openDownloadedUpdate(path: string): Promise<void> {
+  return invoke("open_downloaded_update", { path });
+}
+
+export function onUpdateDownloadProgress(handler: (percent: number) => void): Promise<() => void> {
+  return listen<{ percent: number }>("update-download-progress", (e) => {
+    handler(e.payload.percent);
+  });
+}
+
 export function openExternalUrl(url: string): Promise<void> {
   return openUrl(url);
 }
