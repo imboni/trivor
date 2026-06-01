@@ -60,7 +60,7 @@ import {
 } from "./theme";
 import { AxisOrientationWidget } from "./axis-widget";
 import { invalidateSceneThemeCache } from "./scene-theme";
-import { flushUi } from "./ui";
+import { delay, flushUi } from "./ui";
 import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
 import { UpdatePreferencesStore } from "./update-preferences";
 import { ModelViewport, type SavedCamera } from "./viewer";
@@ -81,6 +81,10 @@ type LocalePref = "en" | "zh-Hans" | "system";
 
 const FALLBACK_REPOSITORY = "https://github.com/imboni/trivor";
 const DISMISSED_UPDATE_KEY = "trivor:dismissed-update-version";
+/** Wait after launch before hitting the network; lets the shell paint and settle first. */
+const UPDATE_STARTUP_CHECK_DELAY_MS = 3000;
+const UPDATE_STARTUP_SETTLE_POLL_MS = 100;
+const UPDATE_STARTUP_SETTLE_TIMEOUT_MS = 60_000;
 
 function fallbackAppInfo(): AppInfo {
   return {
@@ -150,6 +154,7 @@ export class App {
   private updateBannerVisible = false;
   private updateDownloadState: "idle" | "downloading" = "idle";
   private updateDownloadPercent = 0;
+  private pendingStartupUpdateBanner = false;
   private readonly shortcuts = new ShortcutStore();
   private shortcutRecording: ShortcutId | null = null;
   private readonly sceneOptions = new SceneOptionsStore();
@@ -1967,7 +1972,33 @@ export class App {
 
   private async checkForUpdatesOnStartup(): Promise<void> {
     if (!this.updatePreferences.get().autoCheckOnStartup) return;
-    await this.handleCheckUpdates(false, { silent: true });
+    await delay(UPDATE_STARTUP_CHECK_DELAY_MS);
+    await this.waitUntilStartupReady();
+    await flushUi();
+    await this.handleCheckUpdates(false, { silent: true, fromStartup: true });
+  }
+
+  private waitUntilStartupReady(): Promise<void> {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (this.phase !== "loading" || Date.now() - started >= UPDATE_STARTUP_SETTLE_TIMEOUT_MS) {
+          resolve();
+          return;
+        }
+        setTimeout(tick, UPDATE_STARTUP_SETTLE_POLL_MS);
+      };
+      tick();
+    });
+  }
+
+  private maybeShowStartupUpdateBanner(): void {
+    if (this.phase === "loading") {
+      this.pendingStartupUpdateBanner = true;
+      return;
+    }
+    this.pendingStartupUpdateBanner = false;
+    this.showUpdateBannerIfNeeded();
   }
 
   private showUpdateBannerIfNeeded(): void {
@@ -2060,9 +2091,10 @@ export class App {
 
   private async handleCheckUpdates(
     fromMenu: boolean,
-    options: { silent?: boolean } = {},
+    options: { silent?: boolean; fromStartup?: boolean } = {},
   ): Promise<void> {
     const silent = options.silent ?? false;
+    const fromStartup = options.fromStartup ?? false;
     if (this.updateState === "checking") return;
     this.clearUpdateStatusTimer();
     this.updateState = "checking";
@@ -2079,7 +2111,8 @@ export class App {
         );
       }
       if (result.update_available) {
-        this.showUpdateBannerIfNeeded();
+        if (fromStartup) this.maybeShowStartupUpdateBanner();
+        else this.showUpdateBannerIfNeeded();
       }
     } catch {
       this.updateState = "error";
@@ -2396,6 +2429,10 @@ export class App {
     this.paintOverlay();
     this.paintInspector();
     this.scheduleFramingInsets();
+    if (this.pendingStartupUpdateBanner && this.phase !== "loading") {
+      this.pendingStartupUpdateBanner = false;
+      this.showUpdateBannerIfNeeded();
+    }
   }
 
   private paintInspector(): void {

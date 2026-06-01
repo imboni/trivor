@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Defer startup update check until the shell has painted and loading has finished (3 s grace, no banner during model load) — 启动后延迟检查更新，界面就绪后再提示
 - Dismiss explorer popovers when opening clear-list menu; shared popover fade helper — 打开清空菜单时关闭其它浮层
 - Invalidate corrupt preview cache entries before re-running gltfpack — 损坏的预览缓存会先删除再重建
 - Suppress raw model-viewer JavaScript errors in the UI — 不再向用户展示 model-viewer 内部 JS 报错
