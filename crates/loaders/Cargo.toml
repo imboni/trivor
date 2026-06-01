@@ -9,8 +9,10 @@ rust-version.workspace = true
 [dependencies]
 trivor-core.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 glam.workspace = true
 gltf = { version = "1.4", features = ["import", "extensions", "allow_empty_texture"] }
 image.workspace = true
 base64 = "0.22"
-rayon.workspace = true

@@ -9,6 +9,7 @@ import {
   listModelsInFolder,
   loadModel,
   normalizeModelPath,
+  modelFileSize,
   openDownloadedUpdate,
   openExternalUrl,
   pathKind,
@@ -47,9 +48,6 @@ import {
   ShortcutStore,
   type ShortcutId,
 } from "./shortcuts";
-
-/** Maximum models kept in the library list. */
-export const MAX_LIBRARY_MODELS = 100;
 import type { AppInfo, AppPhase, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
 import {
   initTheme,
@@ -65,6 +63,18 @@ import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
 import { UpdatePreferencesStore } from "./update-preferences";
 import { ModelViewport, type SavedCamera } from "./viewer";
 import { measureViewportInsets } from "./viewport-framing";
+
+/** Maximum models kept in the library list. */
+export const MAX_LIBRARY_MODELS = 100;
+
+/** Advisory hint when load fails for models at or above this on-disk size. */
+const LARGE_MODEL_HINT_BYTES = 100 * 1024 * 1024;
+/** Auto meshopt preview threshold (matches Rust PREVIEW_OPTIMIZE_BYTES). */
+const PREVIEW_OPTIMIZE_BYTES = 200 * 1024 * 1024;
+
+function isPreviewCachePath(viewerPath: string): boolean {
+  return viewerPath.includes("-preview-");
+}
 
 type LocalePref = "en" | "zh-Hans" | "system";
 
@@ -91,6 +101,7 @@ export class App {
   private loadPercent = 0;
   private parseProgress = 0;
   private packProgress = 0;
+  private loadingExpectsPreview = false;
   private loadingStage: "parse" | "pack" | "render" = "parse";
   private status = "";
   private settingsOpen = false;
@@ -1493,6 +1504,28 @@ export class App {
     }, 4500);
   }
 
+  private modelFileSizeForPath(path: string): number {
+    if (this.summary?.path === path) return this.summary.file_size;
+    const cached = this.summaryCache.get(path);
+    if (cached) return cached.file_size;
+    return this.models.find((m) => m.path === path)?.file_size ?? 0;
+  }
+
+  private largeModelLoadHint(path: string): string | null {
+    const size = this.modelFileSizeForPath(path);
+    if (size < LARGE_MODEL_HINT_BYTES) return null;
+    return this.ui.error_large_model_hint.replace("{size}", formatBytes(size, this.ui));
+  }
+
+  private formatLoadErrorMessage(path: string, msg: string): string {
+    let out = msg;
+    const sidecar = gltfLoadHint(path, this.ui);
+    if (sidecar && !out.includes(sidecar)) out = `${out}\n${sidecar}`;
+    const large = this.largeModelLoadHint(path);
+    if (large && !out.includes(large)) out = `${out}\n${large}`;
+    return out;
+  }
+
   private clearUpdateStatusTimer(): void {
     if (this.updateStatusTimer) {
       clearTimeout(this.updateStatusTimer);
@@ -1827,6 +1860,7 @@ export class App {
     this.loadPercent = 0;
     this.parseProgress = 0;
     this.packProgress = 0;
+    this.loadingExpectsPreview = false;
     this.loadingStage = "parse";
     this.status = "";
     this.paint();
@@ -1835,8 +1869,15 @@ export class App {
 
     try {
       const cached = this.summaryCache.get(path);
+      let fileSize = 0;
+      try {
+        fileSize = await modelFileSize(path);
+      } catch {
+        fileSize = this.modelFileSizeForPath(path);
+      }
+      this.loadingExpectsPreview = fileSize >= PREVIEW_OPTIMIZE_BYTES;
 
-      this.loadingStage = cached ? "pack" : "parse";
+      this.loadingStage = !cached && !this.loadingExpectsPreview ? "parse" : "pack";
       this.parseProgress = cached ? 100 : 0;
       this.packProgress = 0;
       this.syncLoadingProgress();
@@ -1900,13 +1941,20 @@ export class App {
       }
       this.viewport.focus();
       this.paintCinemaControls();
+      if (isPreviewCachePath(viewerPath)) {
+        const notice = this.ui.large_model_preview_notice.replace(
+          "{size}",
+          formatBytes(summary.file_size, this.ui),
+        );
+        this.showToast(notice);
+      }
     } catch (err) {
       if (token !== this.loadToken) return;
       this.phase = "error";
-      let msg = err instanceof Error ? err.message : String(err);
-      const hint = gltfLoadHint(path, this.ui);
-      if (hint && !msg.includes(hint)) msg = `${msg}\n${hint}`;
-      this.status = msg;
+      const msg = err instanceof Error ? err.message : String(err);
+      this.status = this.formatLoadErrorMessage(path, msg);
+      const largeHint = this.largeModelLoadHint(path);
+      if (largeHint && !this.loadingExpectsPreview) this.showToast(largeHint, "error");
       if (!this.summary) this.viewport.clear();
     }
     this.paint();
@@ -2201,7 +2249,8 @@ export class App {
     if (this.phase !== "loading" || this.loadingStage === "render") return;
 
     const parseDone = this.parseProgress >= 100;
-    if (!parseDone) {
+    const optimizing = this.loadingExpectsPreview || this.packProgress > 0;
+    if (!parseDone && !optimizing) {
       this.loadingStage = "parse";
       this.loadPercent = Math.min(
         40,
@@ -2209,7 +2258,11 @@ export class App {
       );
     } else {
       this.loadingStage = "pack";
-      this.loadPercent = Math.min(90, 10 + Math.floor(this.packProgress * 0.8));
+      const packPct = Math.max(this.packProgress, optimizing ? 2 : 0);
+      this.loadPercent = Math.min(
+        90,
+        parseDone ? 10 + Math.floor(packPct * 0.8) : 5 + Math.floor(packPct * 0.75),
+      );
     }
     this.paintOverlay();
   }
@@ -2219,7 +2272,9 @@ export class App {
       this.loadingStage === "parse"
         ? this.ui.loading_reading
         : this.loadingStage === "pack"
-          ? this.ui.loading_packing
+          ? this.loadingExpectsPreview
+            ? this.ui.loading_optimizing_preview
+            : this.ui.loading_packing
           : this.ui.loading_rendering;
     return `${stage} · ${this.loadPercent}%`;
   }

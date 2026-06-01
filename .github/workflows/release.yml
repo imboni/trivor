@@ -34,6 +34,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Fetch gltfpack sidecars
+        run: bash scripts/fetch-gltfpack.sh
+
       - name: Build universal app
         env:
           # Ad-hoc sign (no Apple Developer cert required). Override via repo secret for notarized builds.

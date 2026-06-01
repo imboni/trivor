@@ -3,11 +3,12 @@ mod commands;
 mod menu;
 mod open_external;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent};
 use trivor_core::{LocalePreference, ThemePreference};
-use trivor_loaders::set_viewer_cache_dir;
+use trivor_loaders::{ensure_gltfpack_configured, set_gltfpack_dev_bundle, set_viewer_cache_dir};
 
 use open_external::{enqueue_external_open, FrontendReady, PendingOpens};
 
@@ -42,6 +43,7 @@ pub fn run() {
             commands::set_locale,
             commands::set_theme,
             commands::normalize_model_path,
+            commands::model_file_size,
             commands::open_model_dialog,
             commands::open_folder_dialog,
             commands::scan_models_folder,
@@ -63,6 +65,9 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(&viewer_cache);
                 set_viewer_cache_dir(viewer_cache);
             }
+
+            ensure_gltfpack_configured();
+            set_gltfpack_dev_bundle(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
 
             let window = app.get_webview_window("main").expect("main window");
 

@@ -165,6 +165,12 @@ impl I18n {
             (_, MessageKey::LoadingReading) => "Reading",
             (Locale::ZhHans, MessageKey::LoadingPacking) => "正在准备",
             (_, MessageKey::LoadingPacking) => "Preparing",
+            (Locale::ZhHans, MessageKey::LoadingOptimizingPreview) => {
+                "模型较大，正在自动优化预览"
+            }
+            (_, MessageKey::LoadingOptimizingPreview) => {
+                "Large model — auto-optimizing preview"
+            }
             (Locale::ZhHans, MessageKey::LoadingRendering) => "正在渲染",
             (_, MessageKey::LoadingRendering) => "Rendering",
             (Locale::ZhHans, MessageKey::ErrorFolderEmpty) => {
@@ -192,6 +198,24 @@ impl I18n {
             }
             (_, MessageKey::ErrorGltfSidecarHint) => {
                 "Tip: keep .gltf together with its .bin and texture files in one folder."
+            }
+            (Locale::ZhHans, MessageKey::ErrorGltfpackMissing) => {
+                "无法为超大模型生成预览。请重新安装应用，或导出更小的 GLB。"
+            }
+            (_, MessageKey::ErrorGltfpackMissing) => {
+                "Could not generate a preview for this large model. Reinstall the app, or export a smaller GLB."
+            }
+            (Locale::ZhHans, MessageKey::ErrorLargeModelHint) => {
+                "该模型较大（{size}）。将自动生成简化预览；若仍失败，请尝试导出更小的 GLB。"
+            }
+            (_, MessageKey::ErrorLargeModelHint) => {
+                "This model is large ({size}). A simplified preview will be generated automatically; if loading still fails, try a smaller GLB export."
+            }
+            (Locale::ZhHans, MessageKey::LargeModelPreviewNotice) => {
+                "模型较大（{size}），已显示简化预览，原文件未修改。"
+            }
+            (_, MessageKey::LargeModelPreviewNotice) => {
+                "Large model ({size}) — showing a simplified preview. Original file unchanged."
             }
             (Locale::ZhHans, MessageKey::ErrorViewerLoad) => "模型加载失败",
             (_, MessageKey::ErrorViewerLoad) => "Failed to load model",
@@ -376,12 +400,16 @@ pub enum MessageKey {
     Loading,
     LoadingReading,
     LoadingPacking,
+    LoadingOptimizingPreview,
     LoadingRendering,
     ErrorFolderEmpty,
     LibraryLimit,
     ErrorUnknownFileType,
     ErrorUnsupportedExt,
     ErrorGltfSidecarHint,
+    ErrorGltfpackMissing,
+    ErrorLargeModelHint,
+    LargeModelPreviewNotice,
     ErrorViewerLoad,
     ToolZoomIn,
     ToolZoomOut,
@@ -497,12 +525,15 @@ pub struct UiBundle {
     pub loading: String,
     pub loading_reading: String,
     pub loading_packing: String,
+    pub loading_optimizing_preview: String,
     pub loading_rendering: String,
     pub error_folder_empty: String,
     pub library_limit: String,
     pub error_unknown_file_type: String,
     pub error_unsupported_ext: String,
     pub error_gltf_sidecar_hint: String,
+    pub error_large_model_hint: String,
+    pub large_model_preview_notice: String,
     pub error_viewer_load: String,
     pub tool_zoom_in: String,
     pub tool_zoom_out: String,
@@ -639,12 +670,15 @@ impl UiBundle {
             loading: t(MessageKey::Loading),
             loading_reading: t(MessageKey::LoadingReading),
             loading_packing: t(MessageKey::LoadingPacking),
+            loading_optimizing_preview: t(MessageKey::LoadingOptimizingPreview),
             loading_rendering: t(MessageKey::LoadingRendering),
             error_folder_empty: t(MessageKey::ErrorFolderEmpty),
             library_limit: t(MessageKey::LibraryLimit),
             error_unknown_file_type: t(MessageKey::ErrorUnknownFileType),
             error_unsupported_ext: t(MessageKey::ErrorUnsupportedExt),
             error_gltf_sidecar_hint: t(MessageKey::ErrorGltfSidecarHint),
+            error_large_model_hint: t(MessageKey::ErrorLargeModelHint),
+            large_model_preview_notice: t(MessageKey::LargeModelPreviewNotice),
             error_viewer_load: t(MessageKey::ErrorViewerLoad),
             tool_zoom_in: t(MessageKey::ToolZoomIn),
             tool_zoom_out: t(MessageKey::ToolZoomOut),

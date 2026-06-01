@@ -3,7 +3,6 @@
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
 
 use base64::Engine;
@@ -13,8 +12,9 @@ use gltf::json::validation::USize64;
 use gltf::{buffer, Gltf};
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, RgbaImage};
-use rayon::prelude::*;
 
+use crate::gltf_inspect::{inspect_gltf_file, inspect_gltf_quick, needs_preview_optimize};
+use crate::gltf_optimize::maybe_optimize_preview;
 use crate::LoadError;
 use crate::ProgressFn;
 
@@ -226,23 +226,18 @@ fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressF
         .map(|(i, _)| i)
         .collect();
     let total = embed_indices.len().max(1);
-    let done = AtomicUsize::new(0);
+    let mut packed_images: Vec<(usize, Vec<u8>)> = Vec::with_capacity(embed_indices.len());
 
-    let packed_images: Result<Vec<(usize, Vec<u8>)>, LoadError> = embed_indices
-        .par_iter()
-        .map(|&i| {
-            let image = &root.images[i];
-            let mime = image_mime(image);
-            let encoded = read_encoded_image(image, &root.buffer_views, &buffers, base_ref, source)?;
-            let rgba = decode_rgba(&encoded, mime.as_deref(), source)?;
-            let png = encode_rgba_png(&rgba, source)?;
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            report_progress(progress, 12 + ((n * 73) / total) as u8);
-            Ok((i, png))
-        })
-        .collect();
+    for (n, &i) in embed_indices.iter().enumerate() {
+        let image = &root.images[i];
+        let mime = image_mime(image);
+        let encoded = read_encoded_image(image, &root.buffer_views, &buffers, base_ref, source)?;
+        let rgba = decode_rgba(&encoded, mime.as_deref(), source)?;
+        let png = encode_rgba_png(&rgba, source)?;
+        report_progress(progress, 12 + (((n + 1) * 73) / total) as u8);
+        packed_images.push((i, png));
+    }
 
-    let packed_images = packed_images?;
     report_progress(progress, 88);
 
     let mut buffer_views = std::mem::take(&mut root.buffer_views);
@@ -385,8 +380,18 @@ pub fn resolve_viewer_model(
         .unwrap_or_default();
 
     match ext.as_str() {
-        "gltf" => pack_to_cache(&source, progress),
+        "gltf" => {
+            let stats = inspect_gltf_file(&source)?;
+            if needs_preview_optimize(&stats) {
+                return maybe_optimize_preview(&source, &stats, progress);
+            }
+            pack_to_cache(&source, progress)
+        }
         "glb" => {
+            let stats = inspect_gltf_quick(&source)?;
+            if needs_preview_optimize(&stats) {
+                return maybe_optimize_preview(&source, &stats, progress);
+            }
             if needs_viewer_repack(&source)? {
                 pack_to_cache(&source, progress)
             } else {

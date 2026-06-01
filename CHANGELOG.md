@@ -7,14 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-01
+
 ### Added
 
+- Automatic simplified preview for models ≥ 200 MB via bundled `gltfpack` (meshopt cache); original file unchanged — 超过 200 MB 的模型自动用 gltfpack 生成简化预览缓存，原文件不变
+- [docs/large-models.md](docs/large-models.md) — large GLB limits, current preview behavior, and planned lossless pipeline — 大模型说明文档（现状与后续全精度方案）
 - macOS overlay title bar with transparent webview; grid extends into the title bar zone — macOS 沉浸式 overlay 标题栏与透明 WebView，网格延伸至标题栏区域
 - **Fit visible area** (`F`, double-click): reframes within unobstructed viewport (panels and dock) — **适应可见区域**：在扣除侧栏与底部工具栏后的区域重新框选
 - Dedicated fit control in the bottom dock — 底部工具栏新增「适应」按钮
 
 ### Changed
 
+- README installation notes for Gatekeeper / Privacy & Security when installing outside the App Store — README 补充非 App Store 安装时的 macOS 安全验证说明
 - Bottom dock regrouped: scene tools (grid, axes) on the left, camera tools (fit, zoom, reset) on the right — 底部工具栏重排：场景在左、相机在右
 - Fit vs reset tooltips clarified (visible area vs initial load pose) — 区分「适应可见区域」与「恢复打开时视角」
 - Settings GitHub link uses the GitHub mark icon — 设置页 GitHub 链接改用 GitHub 图标
@@ -23,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fit no longer shrinks the model on repeated clicks — 修复重复「适应」导致模型越变越小
 - Preview grid no longer clipped at the sides when fitting with panels open — 修复适应视口时网格地面左右被裁切
+- Load failures for large models show an advisory hint (no hard file-size cap) — 大模型加载失败时显示提示，不再硬性限制文件大小
+- Large-model loading copy distinguishes “preparing” vs “auto-optimizing preview”; progress starts before pack completes — 大模型加载文案区分「准备」与「自动优化预览」，避免一上来像失败
 
 ### Removed
 

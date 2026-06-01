@@ -37,7 +37,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Architecture** | Apple Silicon and Intel (universal build from releases) |
 | **Formats** | `.gltf` (JSON + sidecar `.bin` / textures) and `.glb` (single file) |
 
-> **Note:** A `.gltf` file must stay in the same folder as its `.bin` and texture files. Trivor packs separate glTF assets into a cached GLB for reliable preview when needed.
+> **Note:** Keep `.gltf` sidecar files in the same folder. Models **≥ 200 MB** use an automatic simplified preview — see [docs/large-models.md](docs/large-models.md).
 
 ## Installation
 
@@ -46,6 +46,10 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 1. Download the latest `.dmg`.
 2. Drag **Trivor** into **Applications**.
 3. Open a model from Finder or from **File → Open…** inside the app.
+
+> **Security (not from the App Store):** Trivor is distributed via GitHub, not the Mac App Store. On first launch, macOS may show that the app “cannot be verified” or was blocked by Gatekeeper. This is expected for apps outside the App Store.
+>
+> **Allow the app once:** open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the Trivor message—or in Finder, **Control-click** **Trivor → Open** and confirm. After that, launch normally from Applications.
 
 ## Usage
 
@@ -112,6 +116,7 @@ All shortcuts except double-click fit can be remapped in **Settings → Shortcut
 git clone https://github.com/imboni/trivor.git
 cd trivor
 npm install
+bash scripts/fetch-gltfpack.sh   # large-model preview (macOS gltfpack sidecars)
 npm run tauri dev
 ```
 
@@ -156,6 +161,7 @@ trivor/
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting |
 | [docs/RELEASE.md](docs/RELEASE.md) | macOS release signing |
+| [docs/large-models.md](docs/large-models.md) | Large GLB preview & roadmap |
 | [docs/icon.md](docs/icon.md) | Application icon workflow |
 
 ## Third-party software
@@ -170,6 +176,7 @@ Trivor is built on open-source components. The table below lists **direct** depe
 | [@google/model-viewer](https://modelviewer.dev/) | 3D viewport web component | Apache-2.0 | [google/model-viewer](https://github.com/google/model-viewer) |
 | [Three.js](https://threejs.org/) | WebGL rendering (via model-viewer; scene grid and guides) | MIT | [mrdoob/three.js](https://github.com/mrdoob/three.js) |
 | [gltf](https://crates.io/crates/gltf) (Rust) | glTF / GLB parsing, inspection, and packing | MIT / Apache-2.0 | [gltf-rs/gltf](https://github.com/gltf-rs/gltf) |
+| [meshoptimizer / gltfpack](https://github.com/zeux/meshoptimizer) | Simplified meshopt preview for models ≥ 200 MB | MIT | [zeux/meshoptimizer](https://github.com/zeux/meshoptimizer) |
 
 ### Desktop integration & backend utilities
 

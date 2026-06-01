@@ -19,6 +19,10 @@ export function normalizeModelPath(path: string): Promise<string> {
   return invoke("normalize_model_path", { path });
 }
 
+export function modelFileSize(path: string): Promise<number> {
+  return invoke("model_file_size", { path });
+}
+
 export function openFolderDialog(): Promise<string | null> {
   return invoke("open_folder_dialog");
 }

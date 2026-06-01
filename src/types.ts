@@ -56,12 +56,15 @@ export interface UiBundle {
   loading: string;
   loading_reading: string;
   loading_packing: string;
+  loading_optimizing_preview: string;
   loading_rendering: string;
   error_folder_empty: string;
   library_limit: string;
   error_unknown_file_type: string;
   error_unsupported_ext: string;
   error_gltf_sidecar_hint: string;
+  error_large_model_hint: string;
+  large_model_preview_notice: string;
   error_viewer_load: string;
   tool_zoom_in: string;
   tool_zoom_out: string;

@@ -1,8 +1,11 @@
 //! Model loaders for Trivor (极视).
 
 mod folder;
+mod gltf_inspect;
 mod gltf_loader;
+mod gltf_optimize;
 mod gltf_pack;
+mod limits;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -29,7 +32,12 @@ use trivor_core::SceneSummary;
 
 pub use folder::list_models_in_folder;
 pub use gltf_loader::{inspect_gltf_summary, ProgressFn};
+pub use gltf_optimize::{
+    discover_gltfpack_from_exe_dir, ensure_gltfpack_configured, set_gltfpack_dev_bundle,
+    set_gltfpack_path,
+};
 pub use gltf_pack::resolve_viewer_model;
+pub use limits::{format_bytes, file_size};
 
 #[derive(Debug, Error)]
 pub enum LoadError {

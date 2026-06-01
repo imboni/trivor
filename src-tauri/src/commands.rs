@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use tauri::{async_runtime, Emitter, Manager, State, WebviewWindow};
 use trivor_core::{LocalePreference, ModelListEntry, SceneSummary, ThemePreference};
 use trivor_i18n::{I18n, MessageKey, UiBundle};
-use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, LoadError};
+use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, file_size, LoadError};
 
 use crate::chrome;
 use crate::menu;
@@ -166,12 +166,24 @@ pub async fn load_model(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub fn model_file_size(path: String) -> Result<u64, String> {
+    file_size(Path::new(&path)).map_err(|e| e.to_string())
+}
+
 fn format_load_error(err: LoadError, i18n: &I18n) -> String {
     match err {
         LoadError::UnsupportedFormat(ext) => i18n
             .t(MessageKey::ErrorUnsupportedExt)
             .replace("{ext}", &ext),
-        LoadError::Io { message, .. } | LoadError::Parse { message, .. } => message,
+        LoadError::Io { message, .. } => message,
+        LoadError::Parse { message, .. } => {
+            if message.contains("gltfpack") {
+                i18n.t(MessageKey::ErrorGltfpackMissing).to_string()
+            } else {
+                message
+            }
+        }
     }
 }
 
