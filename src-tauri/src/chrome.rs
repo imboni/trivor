@@ -30,11 +30,23 @@ pub fn apply(window: &WebviewWindow, theme: Theme) {
 
 #[cfg(target_os = "macos")]
 fn apply_macos(window: &WebviewWindow, dark: bool) {
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
     if let Err(e) = window.set_title_bar_style(TitleBarStyle::Overlay) {
         tracing::warn!(%e, "failed to set overlay title bar");
     }
 
-    // Transparent webview: grid/gradient HTML paints the full window including the title bar zone.
+    let material = NSVisualEffectMaterial::Sidebar;
+    if let Err(e) = apply_vibrancy(
+        window,
+        material,
+        Some(NSVisualEffectState::Active),
+        None,
+    ) {
+        tracing::debug!(%e, "vibrancy not applied");
+    }
+
+    // Transparent webview: HTML paints viewport grid; native vibrancy frosts panels.
     if let Err(e) = window.set_background_color(Some(Color(0, 0, 0, 0))) {
         tracing::debug!(%e, "transparent webview background not applied");
         let _ = window.set_background_color(Some(viewport_background(dark)));

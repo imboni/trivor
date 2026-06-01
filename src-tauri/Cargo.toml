@@ -25,6 +25,7 @@ tauri-plugin-opener = "2"
 ureq = { version = "2", features = ["json"] }
 rfd.workspace = true
 dark-light = "2"
+window-vibrancy = "0.6"
 trivor-core = { path = "../crates/core" }
 trivor-i18n = { path = "../crates/i18n" }
 trivor-loaders = { path = "../crates/loaders" }

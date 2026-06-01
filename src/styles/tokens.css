@@ -23,8 +23,8 @@
 
   --shell-pad: 32px;
   --shell-pad-sm: 16px;
-  --glass-blur: blur(24px);
-  --glass-saturate: saturate(1.12);
+  --glass-blur: blur(32px);
+  --glass-saturate: saturate(1.28);
   --glass-filter: var(--glass-blur) var(--glass-saturate);
   --glass-shadow: var(--shadow-sm);
   --explorer-w: 272px;
@@ -207,7 +207,21 @@ html {
 html.is-macos-overlay-titlebar {
   --titlebar-inset: 52px;
   --content-top: calc(var(--shell-pad) + var(--titlebar-inset));
+  --glass-blur: blur(40px);
+  --glass-saturate: saturate(1.38);
   background: transparent;
+}
+
+html.is-macos-overlay-titlebar[data-theme="dark"] {
+  --bg-glass: rgba(31, 31, 35, 0.34);
+  --scene-widget-bg: rgba(31, 31, 35, 0.38);
+  --border: rgba(255, 255, 255, 0.14);
+}
+
+html.is-macos-overlay-titlebar[data-theme="light"] {
+  --bg-glass: rgba(255, 255, 255, 0.46);
+  --scene-widget-bg: rgba(255, 255, 255, 0.5);
+  --border: rgba(12, 24, 48, 0.14);
 }
 
 html.is-macos-overlay-titlebar body {
