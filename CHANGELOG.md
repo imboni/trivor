@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-01
+
 ### Changed
 
 - Smaller macOS app bundle: `latin`/`latin-ext` font subsets, woff2-only web assets, Rust release `strip` + LTO (~24 MB → ~18 MB `.app`) — 缩小安装包：字体 subset、仅 woff2、Release 链接优化
