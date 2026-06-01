@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#18191e"/>
+      <stop offset="55%" stop-color="#141518"/>
+      <stop offset="100%" stop-color="#101114"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="72%" r="55%">
+      <stop offset="0%" stop-color="#b0c6ff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#b0c6ff" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#b0c6ff" fill-opacity="0.72"/>
+    </marker>
+  </defs>
+
+  <rect width="660" height="400" fill="url(#bg)"/>
+  <rect width="660" height="400" fill="url(#glow)"/>
+
+  <!-- subtle perspective grid -->
+  <g stroke="#b0c6ff" stroke-opacity="0.08" stroke-width="1">
+    <line x1="0" y1="320" x2="660" y2="320"/>
+    <line x1="110" y1="400" x2="330" y2="250"/>
+    <line x1="220" y1="400" x2="330" y2="250"/>
+    <line x1="330" y1="400" x2="330" y2="250"/>
+    <line x1="440" y1="400" x2="330" y2="250"/>
+    <line x1="550" y1="400" x2="330" y2="250"/>
+  </g>
+
+  <text x="330" y="46" text-anchor="middle" fill="#e3e2e6" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" letter-spacing="-0.02em">Trivor</text>
+  <text x="330" y="72" text-anchor="middle" fill="#8c90a1" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" font-weight="400">Drag Trivor into Applications to install</text>
+
+  <!-- drop zones (hidden guides; icons render on top) -->
+  <circle cx="180" cy="170" r="58" fill="#ffffff" fill-opacity="0.03" stroke="#ffffff" stroke-opacity="0.08"/>
+  <circle cx="480" cy="170" r="58" fill="#ffffff" fill-opacity="0.03" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- arrow between icon centers -->
+  <path d="M 252 170 H 408" stroke="#b0c6ff" stroke-opacity="0.55" stroke-width="2.5" fill="none" marker-end="url(#arrowhead)"/>
+</svg>

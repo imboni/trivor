@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Smaller macOS app bundle: `latin`/`latin-ext` font subsets, woff2-only web assets, Rust release `strip` + LTO (~24 MB → ~18 MB `.app`) — 缩小安装包：字体 subset、仅 woff2、Release 链接优化
+- Branded macOS DMG installer window (background, icon layout, drag hint) — macOS 安装盘品牌化背景与图标布局
 - Library row actions moved into the context menu; unified fade popovers for clear-list / clear-cache confirm — 侧栏操作收入右键菜单；清空列表/清除缓存共用淡入确认层
 - Large-model load failures: clearer bilingual copy, export size/triangle guidance, inspector metadata when available, dismissible error overlay — 大模型加载失败：中英文说明、导出建议、失败时属性面板、可关闭错误层
 - gltfpack / viewer errors localized in the web shell (follows Settings language) — 大模型错误文案改由前端 i18n，随设置语言切换
