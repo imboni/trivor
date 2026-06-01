@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use tauri::{async_runtime, Emitter, Manager, State, WebviewWindow};
 use trivor_core::{LocalePreference, ModelListEntry, SceneSummary, ThemePreference};
 use trivor_i18n::{I18n, MessageKey, UiBundle};
-use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, file_size, LoadError};
+use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, file_size, clear_viewer_cache, viewer_cache_byte_size, LoadError};
 
 use crate::chrome;
 use crate::menu;
@@ -169,6 +169,25 @@ pub async fn load_model(
 #[tauri::command]
 pub fn model_file_size(path: String) -> Result<u64, String> {
     file_size(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn viewer_cache_size() -> Result<u64, String> {
+    viewer_cache_byte_size().map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct ClearCacheResult {
+    pub bytes_cleared: u64,
+}
+
+#[tauri::command]
+pub fn clear_viewer_cache_cmd() -> Result<ClearCacheResult, String> {
+    clear_viewer_cache()
+        .map(|bytes| ClearCacheResult {
+            bytes_cleared: bytes,
+        })
+        .map_err(|e| e.to_string())
 }
 
 fn format_load_error(err: LoadError, i18n: &I18n) -> String {

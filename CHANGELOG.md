@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS overlay title bar with transparent webview; grid extends into the title bar zone — macOS 沉浸式 overlay 标题栏与透明 WebView，网格延伸至标题栏区域
 - **Fit visible area** (`F`, double-click): reframes within unobstructed viewport (panels and dock) — **适应可见区域**：在扣除侧栏与底部工具栏后的区域重新框选
 - Dedicated fit control in the bottom dock — 底部工具栏新增「适应」按钮
+- Finder **Open With** for `.gltf` / `.glb`; folder open via Finder — 访达「打开方式」支持 glTF/GLB，文件夹可直接打开
+- **Settings → Storage**: clear preview/repack cache on demand — 设置中可手动清除预览缓存
 
 ### Changed
 
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preview grid no longer clipped at the sides when fitting with panels open — 修复适应视口时网格地面左右被裁切
 - Load failures for large models show an advisory hint (no hard file-size cap) — 大模型加载失败时显示提示，不再硬性限制文件大小
 - Large-model loading copy distinguishes “preparing” vs “auto-optimizing preview”; progress starts before pack completes — 大模型加载文案区分「准备」与「自动优化预览」，避免一上来像失败
+- Universal release bundle includes merged `gltfpack` sidecar for Apple Silicon and Intel — 修复通用版安装包缺少 universal gltfpack  sidecar
 
 ### Removed
 

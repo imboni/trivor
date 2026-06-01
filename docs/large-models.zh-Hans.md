@@ -117,4 +117,4 @@ npm run tauri dev
 # 打开 ≥ 200 MB 的 GLB；首次会跑 gltfpack，之后走缓存。
 ```
 
-缓存目录（macOS）：`~/Library/Caches/com.imboni.trivor/viewer/`（以 Tauri 应用缓存路径为准）。
+缓存目录（macOS）：`~/Library/Caches/com.imboni.trivor/viewer/`（以 Tauri 应用缓存路径为准）。可在 **设置 → 存储** 中随时清除。

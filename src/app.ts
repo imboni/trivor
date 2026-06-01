@@ -2,6 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   checkForUpdates,
+  clearViewerCache,
   completeStartup,
   downloadUpdate,
   getAppInfo,
@@ -21,6 +22,7 @@ import {
   openFolderDialog,
   openModelDialog,
   setLocale,
+  viewerCacheSize,
 } from "./bridge";
 import { mountOverlayTitlebar } from "./titlebar";
 import {
@@ -106,6 +108,10 @@ export class App {
   private status = "";
   private settingsOpen = false;
   private clearConfirmOpen = false;
+  private cacheConfirmOpen = false;
+  private viewerCacheBytes: number | null = null;
+  private cacheSizeFetchedForSettings = false;
+  private cacheClearing = false;
   private explorerCollapsed = false;
   private inspectorCollapsed = false;
   private viewportInsetsRaf = 0;
@@ -204,6 +210,16 @@ export class App {
       sceneOptionsList: pick("[data-bind=scene-options-list]"),
       updatesLabel: pick("[data-bind=updates-label]"),
       updateSettingsList: pick("[data-bind=update-settings-list]"),
+      storageLabel: pick("[data-bind=storage-label]"),
+      cacheTitle: pick("[data-bind=cache-title]"),
+      cacheHint: pick("[data-bind=cache-hint]"),
+      cacheSize: pick("[data-bind=cache-size]"),
+      clearCacheBtn: pick("[data-action=clear-cache]"),
+      clearCacheLabel: pick("[data-bind=clear-cache-label]"),
+      cacheClearConfirm: pick("[data-bind=cache-clear-confirm]"),
+      cacheClearConfirmMessage: pick("[data-bind=cache-clear-confirm-message]"),
+      cacheClearConfirmCancel: pick("[data-action=clear-cache-cancel]"),
+      cacheClearConfirmOk: pick("[data-action=clear-cache-confirm]"),
       aboutLabel: pick("[data-bind=about-label]"),
       aboutName: pick("[data-bind=about-name]"),
       aboutVersion: pick("[data-bind=about-version]"),
@@ -320,6 +336,23 @@ export class App {
     bind("open-releases", () => void this.openReleaseNotes());
     bind("open-issues", () => void this.openIssueTracker());
     bind("open-license", () => void this.openLicense());
+    bind("clear-cache", () => {
+      if ((this.els.clearCacheBtn as HTMLButtonElement).disabled) return;
+      this.cacheConfirmOpen = true;
+      this.paintCacheSection();
+    });
+
+    this.els.cacheClearConfirmCancel.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.cacheConfirmOpen = false;
+      this.paintCacheSection();
+    });
+    this.els.cacheClearConfirmOk.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.performClearCache();
+    });
 
     this.els.shortcutsList.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
@@ -401,11 +434,15 @@ export class App {
     this.els.settingsPanel.addEventListener("click", (e) => e.stopPropagation());
     this.els.settingsBackdrop.addEventListener("click", () => {
       this.settingsOpen = false;
+      this.cacheConfirmOpen = false;
+      this.cacheSizeFetchedForSettings = false;
       this.shortcutRecording = null;
       this.paint();
     });
     this.els.closeSettings.addEventListener("click", () => {
       this.settingsOpen = false;
+      this.cacheConfirmOpen = false;
+      this.cacheSizeFetchedForSettings = false;
       this.shortcutRecording = null;
       this.paint();
     });
@@ -508,9 +545,15 @@ export class App {
     });
     document.addEventListener("click", () => {
       this.libraryMenu.hide();
-      if (!this.clearConfirmOpen) return;
-      this.clearConfirmOpen = false;
-      this.paint();
+      if (this.clearConfirmOpen) {
+        this.clearConfirmOpen = false;
+        this.paint();
+        return;
+      }
+      if (this.cacheConfirmOpen) {
+        this.cacheConfirmOpen = false;
+        this.paintCacheSection();
+      }
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.libraryMenu.hide();
@@ -711,6 +754,11 @@ export class App {
     this.paintSceneSettings(true);
     this.els.updatesLabel.textContent = this.ui.settings_updates;
     this.paintUpdateSettings(true);
+    this.els.storageLabel.textContent = this.ui.settings_storage;
+    this.els.cacheTitle.textContent = this.ui.clear_cache_title;
+    this.els.cacheHint.textContent = this.ui.clear_cache_hint;
+    this.els.clearCacheLabel.textContent = this.ui.clear_cache;
+    this.paintCacheSection(true);
     this.els.aboutLabel.textContent = this.ui.settings_about;
     this.els.resourcesLabel.textContent = this.ui.settings_resources;
     this.els.checkUpdatesLabel.textContent = this.ui.check_for_updates;
@@ -824,6 +872,11 @@ export class App {
       if (this.clearConfirmOpen) {
         this.clearConfirmOpen = false;
         this.paint();
+        return;
+      }
+      if (this.cacheConfirmOpen) {
+        this.cacheConfirmOpen = false;
+        this.paintCacheSection();
         return;
       }
       if (this.settingsOpen) {
@@ -1004,6 +1057,64 @@ export class App {
     )) {
       if (btn.dataset.updateSetting !== "autoCheckOnStartup") continue;
       btn.setAttribute("aria-checked", opts.autoCheckOnStartup ? "true" : "false");
+    }
+  }
+
+  private paintCacheSection(force = false): void {
+    if (!force && !this.settingsOpen) return;
+    const bytes = this.viewerCacheBytes;
+    const sizeEl = this.els.cacheSize;
+    sizeEl.textContent =
+      bytes === null ? "…" : bytes === 0 ? "0 B" : formatBytes(bytes, this.ui);
+    sizeEl.classList.toggle("is-empty", bytes === 0);
+    sizeEl.classList.toggle("is-loading", bytes === null);
+
+    const btn = this.els.clearCacheBtn as HTMLButtonElement;
+    const empty = bytes === 0;
+    btn.disabled = empty || this.cacheClearing || bytes === null || this.cacheConfirmOpen;
+    btn.classList.toggle("is-loading", this.cacheClearing);
+    btn.classList.toggle("hidden", this.cacheConfirmOpen);
+    btn.setAttribute("aria-expanded", this.cacheConfirmOpen ? "true" : "false");
+
+    this.els.cacheClearConfirm.classList.toggle("hidden", !this.cacheConfirmOpen);
+    if (this.cacheConfirmOpen) {
+      this.els.cacheClearConfirmMessage.textContent = this.ui.clear_cache_confirm;
+      this.els.cacheClearConfirmCancel.textContent = this.ui.cancel;
+      this.els.cacheClearConfirmOk.textContent = this.ui.clear_cache;
+    }
+  }
+
+  private async refreshViewerCacheSize(): Promise<void> {
+    try {
+      this.viewerCacheBytes = await viewerCacheSize();
+    } catch {
+      this.viewerCacheBytes = 0;
+    }
+    this.paintCacheSection();
+  }
+
+  private async performClearCache(): Promise<void> {
+    if (this.cacheClearing) return;
+    this.cacheClearing = true;
+    this.cacheConfirmOpen = false;
+    this.paintCacheSection();
+    try {
+      const result = await clearViewerCache();
+      this.viewerCacheBytes = 0;
+      const message =
+        result.bytes_cleared > 0
+          ? this.ui.clear_cache_success.replace(
+              "{size}",
+              formatBytes(result.bytes_cleared, this.ui),
+            )
+          : this.ui.clear_cache_empty;
+      this.showToast(message, result.bytes_cleared > 0 ? "success" : "default");
+    } catch {
+      this.showToast(this.ui.clear_cache_failed, "error");
+      void this.refreshViewerCacheSize();
+    } finally {
+      this.cacheClearing = false;
+      this.paintCacheSection();
     }
   }
 
@@ -1967,10 +2078,15 @@ export class App {
 
     this.els.settingsBackdrop.classList.toggle("hidden", !this.settingsOpen);
     if (this.settingsOpen) {
+      if (!this.cacheSizeFetchedForSettings) {
+        this.cacheSizeFetchedForSettings = true;
+        void this.refreshViewerCacheSize();
+      }
       this.paintAboutSection();
       this.paintShortcutsSection();
       this.paintSceneSettings();
       this.paintUpdateSettings();
+      this.paintCacheSection();
     }
     this.els.clearConfirmPop.classList.toggle("hidden", !this.clearConfirmOpen);
     this.els.clearLibrary.classList.toggle("is-active", this.clearConfirmOpen);
@@ -2595,6 +2711,40 @@ const SHELL_HTML = `
           <label data-bind="updates-label"></label>
           <div class="settings-scene">
             <div class="settings-scene-grid" data-bind="update-settings-list"></div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <label data-bind="storage-label"></label>
+          <div class="settings-scene">
+            <p class="settings-cache-hint" data-bind="cache-hint"></p>
+            <div class="settings-scene-grid">
+              <div class="settings-scene-row is-static settings-scene-row--full settings-cache-row">
+                <span class="settings-scene-row-label">
+                  <span class="material-symbols-outlined settings-scene-row-icon" aria-hidden="true">storage</span>
+                  <span class="settings-scene-row-text settings-cache-row-text">
+                    <span data-bind="cache-title"></span>
+                    <span class="settings-cache-size" data-bind="cache-size">…</span>
+                  </span>
+                </span>
+                <span class="settings-scene-row-actions">
+                  <button type="button" class="settings-shortcut-reset-all" data-action="clear-cache" aria-expanded="false">
+                    <span class="material-symbols-outlined settings-shortcut-reset-all-icon" aria-hidden="true">delete_sweep</span>
+                    <span class="settings-shortcut-reset-all-label" data-bind="clear-cache-label"></span>
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="settings-cache-confirm hidden" data-bind="cache-clear-confirm" role="alertdialog" aria-modal="true">
+            <p class="settings-cache-confirm-text" data-bind="cache-clear-confirm-message"></p>
+            <div class="settings-cache-confirm-actions">
+              <button type="button" class="settings-shortcut-reset-all" data-action="clear-cache-cancel">
+                <span class="settings-shortcut-reset-all-label"></span>
+              </button>
+              <button type="button" class="settings-shortcut-reset-all settings-cache-confirm-ok" data-action="clear-cache-confirm">
+                <span class="settings-shortcut-reset-all-label"></span>
+              </button>
+            </div>
           </div>
         </div>
         <div class="settings-divider" aria-hidden="true"></div>

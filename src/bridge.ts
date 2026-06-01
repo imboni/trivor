@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AppInfo, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
+import type { AppInfo, ClearCacheResult, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
 
 export function getUiBundle(): Promise<UiBundle> {
   return invoke("get_ui_bundle");
@@ -80,6 +80,14 @@ export function downloadUpdate(url: string): Promise<string> {
 
 export function openDownloadedUpdate(path: string): Promise<void> {
   return invoke("open_downloaded_update", { path });
+}
+
+export function viewerCacheSize(): Promise<number> {
+  return invoke("viewer_cache_size");
+}
+
+export function clearViewerCache(): Promise<ClearCacheResult> {
+  return invoke("clear_viewer_cache_cmd");
 }
 
 export function onUpdateDownloadProgress(handler: (percent: number) => void): Promise<() => void> {

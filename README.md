@@ -84,7 +84,7 @@ Press **`P`** or use the dock cinema control for a chrome-minimal preview. Auto-
 
 ### Settings
 
-Open **Settings** (`⌘,`) to change language, appearance, keyboard shortcuts, and viewer scene options. Shortcut bindings are stored locally and can be reset to defaults.
+Open **Settings** (`⌘,`) to change language, appearance, keyboard shortcuts, viewer scene options, and clear preview cache under **Storage**. Shortcut bindings are stored locally and can be reset to defaults.
 
 ## Default keyboard shortcuts
 

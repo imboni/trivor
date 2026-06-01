@@ -27,6 +27,54 @@ pub(crate) fn viewer_cache_dir() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("trivor-viewer"))
 }
 
+fn dir_byte_size(path: &Path) -> Result<u64, LoadError> {
+    if !path.is_dir() {
+        return Ok(0);
+    }
+    let mut total = 0u64;
+    for entry in std::fs::read_dir(path).map_err(|e| LoadError::Io {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })? {
+        let entry = entry.map_err(|e| LoadError::Io {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
+        let meta = entry.metadata().map_err(|e| LoadError::Io {
+            path: entry.path(),
+            message: e.to_string(),
+        })?;
+        if meta.is_dir() {
+            total = total.saturating_add(dir_byte_size(&entry.path())?);
+        } else {
+            total = total.saturating_add(meta.len());
+        }
+    }
+    Ok(total)
+}
+
+/// Total on-disk size of generated viewer previews and repacked GLBs.
+pub fn viewer_cache_byte_size() -> Result<u64, LoadError> {
+    dir_byte_size(&viewer_cache_dir())
+}
+
+/// Remove all cached viewer assets (previews and repacked GLBs).
+pub fn clear_viewer_cache() -> Result<u64, LoadError> {
+    let dir = viewer_cache_dir();
+    let bytes = dir_byte_size(&dir)?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| LoadError::Io {
+            path: dir.clone(),
+            message: e.to_string(),
+        })?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| LoadError::Io {
+        path: dir,
+        message: e.to_string(),
+    })?;
+    Ok(bytes)
+}
+
 use thiserror::Error;
 use trivor_core::SceneSummary;
 

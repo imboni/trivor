@@ -17,6 +17,14 @@ export interface UiBundle {
   menu_report_issue: string;
   settings_about: string;
   settings_updates: string;
+  settings_storage: string;
+  clear_cache_title: string;
+  clear_cache_hint: string;
+  clear_cache_empty: string;
+  clear_cache: string;
+  clear_cache_confirm: string;
+  clear_cache_success: string;
+  clear_cache_failed: string;
   auto_check_updates_on_launch: string;
   settings_resources: string;
   check_for_updates: string;
@@ -135,6 +143,10 @@ export interface UpdateCheckResult {
   update_available: boolean;
   release_page: string | null;
   download_url: string | null;
+}
+
+export interface ClearCacheResult {
+  bytes_cleared: number;
 }
 
 export interface MaterialSummary {

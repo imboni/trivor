@@ -44,6 +44,8 @@ pub fn run() {
             commands::set_theme,
             commands::normalize_model_path,
             commands::model_file_size,
+            commands::viewer_cache_size,
+            commands::clear_viewer_cache_cmd,
             commands::open_model_dialog,
             commands::open_folder_dialog,
             commands::scan_models_folder,

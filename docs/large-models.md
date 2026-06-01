@@ -117,4 +117,4 @@ npm run tauri dev
 # Open a GLB ≥ 200 MB; first load runs gltfpack, subsequent loads use cache.
 ```
 
-Cache location (macOS): `~/Library/Caches/com.imboni.trivor/viewer/` (exact path follows Tauri app cache dir).
+Cache location (macOS): `~/Library/Caches/com.imboni.trivor/viewer/` (exact path follows Tauri app cache dir). Clear it anytime in **Settings → Storage**.
