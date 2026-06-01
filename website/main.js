@@ -83,6 +83,26 @@ const copy = {
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+const THEME_META = {
+  dark: {
+    themeColor: "#121316",
+    ogImage: "assets/screenshot-dark.png",
+  },
+  light: {
+    themeColor: "#e8ebf2",
+    ogImage: "assets/screenshot-light.png",
+  },
+};
+
+function applyThemeMeta(theme) {
+  const meta = THEME_META[theme];
+  if (!meta) return;
+  const themeColor = document.getElementById("theme-color");
+  const ogImage = document.getElementById("og-image");
+  if (themeColor) themeColor.setAttribute("content", meta.themeColor);
+  if (ogImage) ogImage.setAttribute("content", meta.ogImage);
+}
+
 function detectLang() {
   const saved = localStorage.getItem("trivor-site-lang");
   if (saved === "en" || saved === "zh") return saved;
@@ -139,6 +159,7 @@ function applyLang(lang) {
 
 function applyTheme(theme, { animate = false } = {}) {
   document.documentElement.dataset.theme = theme;
+  applyThemeMeta(theme);
 
   const toggle = document.getElementById("theme-toggle");
   if (toggle) {

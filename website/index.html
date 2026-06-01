@@ -2,12 +2,22 @@
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var theme = localStorage.getItem("trivor-site-theme");
+        if (theme !== "light" && theme !== "dark") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Trivor — a lightweight 3D model viewer for macOS." />
     <meta property="og:title" content="Trivor — macOS 3D Model Viewer" />
     <meta property="og:description" content="A lightweight 3D model viewer for macOS. Open glTF and GLB files directly from Finder." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="assets/screenshot-dark.png" />
+    <meta property="og:image" id="og-image" content="assets/screenshot-dark.png" />
+    <meta name="theme-color" id="theme-color" content="#121316" />
     <title>Trivor — macOS 3D Model Viewer</title>
     <link rel="icon" href="assets/logo.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
