@@ -275,10 +275,23 @@ function bindScrollMotion() {
         observer.unobserve(el);
       });
     },
-    { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+    { threshold: 0.08, rootMargin: "0px 0px -5% 0px" },
   );
 
   targets.forEach((el) => observer.observe(el));
+
+  // Catch elements already in view (e.g. short pages).
+  requestAnimationFrame(() => {
+    targets.forEach((el) => {
+      if (el.classList.contains("is-in")) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight && rect.bottom > 0) {
+        if (el.hasAttribute("data-reveal-group")) revealGroup(el);
+        else revealElement(el);
+        observer.unobserve(el);
+      }
+    });
+  });
 }
 
 function init() {

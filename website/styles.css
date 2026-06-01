@@ -825,16 +825,6 @@ html[lang="zh-Hans"] .hero-quote {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  opacity: 0;
-  transform: translateY(16px);
-  transition:
-    opacity 0.7s var(--ease),
-    transform 0.7s var(--ease);
-}
-
-.footer-inner.is-in {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .footer-copy {
@@ -1022,7 +1012,6 @@ html[lang="zh-Hans"] .hero-quote {
   .motion-scroll,
   .preview-frame,
   .section-title,
-  .footer-inner,
   [data-reveal-group]:not(.is-in) .motion-child {
     opacity: 1 !important;
     transform: none !important;
