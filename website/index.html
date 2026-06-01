@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Trivor — a lightweight 3D model viewer for macOS." />
+    <meta property="og:title" content="Trivor — macOS 3D Model Viewer" />
+    <meta property="og:description" content="A lightweight 3D model viewer for macOS. Open glTF and GLB files directly from Finder." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="assets/screenshot-dark.png" />
+    <title>Trivor — macOS 3D Model Viewer</title>
+    <link rel="icon" href="assets/logo.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif:ital,wght@0,400;0,500;1,400&family=Noto+Serif+SC:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-view" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="8.5" />
+        <ellipse cx="12" cy="12" rx="8.5" ry="3.5" transform="rotate(-18 12 12)" />
+        <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" stroke-linecap="round" />
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path
+          d="M4 8V18a1.5 1.5 0 0 0 1.5 1.5H18A1.5 1.5 0 0 0 19.5 18V10a1.5 1.5 0 0 0-1.5-1.5H11L9 6.5H5.5A1.5 1.5 0 0 0 4 8Z"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="icon-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="5" width="18" height="12" rx="2" />
+        <path d="M2 19h20" stroke-linecap="round" />
+      </symbol>
+    </svg>
+
+    <div class="viewport-bg is-grid-idle" id="viewport-bg" aria-hidden="true">
+      <div class="perspective-scene" id="perspective-scene">
+        <div class="perspective-grid perspective-grid--far" id="grid-far"></div>
+        <div class="perspective-grid perspective-grid--near" id="grid-near"></div>
+      </div>
+      <div class="perspective-glow" id="perspective-glow"></div>
+    </div>
+
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="container header-inner">
+          <a class="brand" href="#top" aria-label="Trivor home">
+            <img src="assets/logo.png" width="28" height="28" alt="" />
+            <span>Trivor</span>
+          </a>
+          <div class="header-util">
+            <button class="util-btn" id="lang-toggle" type="button">中文</button>
+            <button class="util-btn util-btn-icon" id="theme-toggle" type="button" aria-label="Toggle theme">
+              ☀
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero">
+          <div class="container">
+            <img class="empty-mark" src="assets/logo.png" width="64" height="64" alt="Trivor" />
+            <h1 class="hero-brand">Trivor</h1>
+            <p class="hero-brand-sub" data-i18n="heroBrandSub" hidden>极视</p>
+            <p class="hero-tagline" data-i18n="heroTagline">See every dimension.</p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#" data-href="releases" data-i18n="download">Download for macOS</a>
+            </div>
+            <p class="hero-meta" data-i18n="heroMeta">macOS 13+ · glTF / GLB · Free</p>
+            <p class="hero-desc" data-i18n="heroDesc">
+              A lightweight 3D model viewer for macOS. Open glTF and GLB files and inspect them in seconds.
+            </p>
+            <p class="hero-quote" data-i18n="heroQuote">Blank as paper—awaiting the stroke of mountains.</p>
+            <nav class="page-links" aria-label="Sections">
+              <a href="#features" data-i18n="linkFeatures">Features</a>
+              <a href="#faq" data-i18n="linkFaq">FAQ</a>
+              <a href="#" data-href="repo" data-i18n="linkGitHub">GitHub</a>
+            </nav>
+          </div>
+        </section>
+
+        <section class="preview">
+          <div class="container">
+            <div class="preview-frame motion-scroll">
+              <div class="preview-media">
+                <picture class="screenshot-picture screenshot--dark">
+                  <source srcset="assets/screenshot-dark.webp" type="image/webp" />
+                  <img
+                    class="screenshot"
+                    src="assets/screenshot-dark.png"
+                    width="1920"
+                    height="1131"
+                    alt="Trivor app window showing a 3D model viewer on macOS"
+                    data-i18n-alt="screenshotAlt"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
+                <picture class="screenshot-picture screenshot--light">
+                  <source srcset="assets/screenshot-light.webp" type="image/webp" />
+                  <img
+                    class="screenshot"
+                    src="assets/screenshot-light.png"
+                    width="1920"
+                    height="1131"
+                    alt="Trivor app window showing a 3D model viewer on macOS"
+                    data-i18n-alt="screenshotAlt"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
+                <div class="preview-shine" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="features">
+          <div class="container">
+            <h2 class="section-title motion-scroll" data-i18n="featuresTitle">Built for quick inspection</h2>
+            <div class="feature-grid" data-reveal-group>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-view" /></svg>
+                </div>
+                <h3 data-i18n="featureViewTitle">Interactive viewing</h3>
+                <p data-i18n="featureViewDesc">Orbit, zoom, and frame models with smooth camera controls.</p>
+              </article>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-folder" /></svg>
+                </div>
+                <h3 data-i18n="featureBrowseTitle">Files & folders</h3>
+                <p data-i18n="featureBrowseDesc">
+                  Open a single model or an entire folder, then switch between files in the sidebar.
+                </p>
+              </article>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-mac" /></svg>
+                </div>
+                <h3 data-i18n="featureMacTitle">Native on macOS</h3>
+                <p data-i18n="featureMacDesc">
+                  Open from Finder, use the menu bar, and rely on familiar keyboard shortcuts.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section faq-section" id="faq">
+          <div class="container">
+            <h2 class="section-title motion-scroll" data-i18n="faqTitle">FAQ</h2>
+            <div class="faq-list" data-reveal-group>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ1">How do I install Trivor?</h3>
+                <p class="faq-a" data-i18n="faqA1">
+                  Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.
+                </p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ2">macOS won't open the app — what should I do?</h3>
+                <p class="faq-a" data-i18n="faqA2">
+                  Trivor is not distributed through the App Store. Control-click the app, choose Open, confirm once, and it will open normally afterward.
+                </p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ3">Which file formats are supported?</h3>
+                <p class="faq-a" data-i18n="faqA3">glTF and GLB — the standard formats for real-time 3D content.</p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ4">What are the system requirements?</h3>
+                <p class="faq-a" data-i18n="faqA4">macOS 13 Ventura or later, on Apple Silicon or Intel.</p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ5">Where can I find previous releases?</h3>
+                <p class="faq-a">
+                  <a class="link-subtle" href="#" data-href="releases-all" data-i18n="faqA5">Browse all releases on GitHub</a>
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="container footer-inner motion-scroll">
+          <p class="footer-copy" data-i18n="footerCopy">Copyright © 2026 imboni and contributors.</p>
+          <nav class="footer-links" aria-label="Links">
+            <a href="#" data-href="repo" data-i18n="linkGitHub">GitHub</a>
+            <a href="#" data-href="releases-all" data-i18n="footerReleases">Release history</a>
+            <a href="#" data-href="issues" data-i18n="footerIssues">Feedback</a>
+          </nav>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
