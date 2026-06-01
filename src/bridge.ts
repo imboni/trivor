@@ -90,9 +90,17 @@ export function clearViewerCache(): Promise<ClearCacheResult> {
   return invoke("clear_viewer_cache_cmd");
 }
 
-export function onUpdateDownloadProgress(handler: (percent: number) => void): Promise<() => void> {
-  return listen<{ percent: number }>("update-download-progress", (e) => {
-    handler(e.payload.percent);
+export interface UpdateDownloadProgress {
+  percent: number;
+  downloaded: number;
+  total: number;
+}
+
+export function onUpdateDownloadProgress(
+  handler: (progress: UpdateDownloadProgress) => void,
+): Promise<() => void> {
+  return listen<UpdateDownloadProgress>("update-download-progress", (e) => {
+    handler(e.payload);
   });
 }
 

@@ -151,9 +151,13 @@ export class App {
   private appInfo: AppInfo | null = null;
   private updateState: "idle" | "checking" | "uptodate" | "available" | "error" = "idle";
   private updateResult: UpdateCheckResult | null = null;
+  /** Kept after update check metadata expires so the banner still shows the version. */
+  private cachedLatestVersion: string | null = null;
   private updateBannerVisible = false;
   private updateDownloadState: "idle" | "downloading" = "idle";
   private updateDownloadPercent = 0;
+  private updateDownloadedBytes = 0;
+  private updateDownloadTotalBytes = 0;
   private pendingStartupUpdateBanner = false;
   private readonly shortcuts = new ShortcutStore();
   private shortcutRecording: ShortcutId | null = null;
@@ -1889,10 +1893,27 @@ export class App {
     this.updateStatusTimer = setTimeout(() => {
       this.updateStatusTimer = null;
       if (this.updateState === "checking") return;
+      if (this.updateBannerVisible || this.updateDownloadState === "downloading") return;
       this.updateState = "idle";
       this.updateResult = null;
+      this.cachedLatestVersion = null;
       this.paintAboutSection();
     }, 60_000);
+  }
+
+  private latestUpdateVersion(): string {
+    return this.updateResult?.latest_version ?? this.cachedLatestVersion ?? "";
+  }
+
+  private formatUpdateDownloadProgress(): string {
+    const pct = this.updateDownloadPercent;
+    if (this.updateDownloadTotalBytes > 0) {
+      return `${formatBytes(this.updateDownloadedBytes, this.ui)} / ${formatBytes(this.updateDownloadTotalBytes, this.ui)} (${pct}%)`;
+    }
+    if (this.updateDownloadedBytes > 0) {
+      return `${formatBytes(this.updateDownloadedBytes, this.ui)} (${pct}%)`;
+    }
+    return this.ui.update_downloading.replace("{percent}", String(pct));
   }
 
   private formatVersionLine(): string {
@@ -1952,11 +1973,8 @@ export class App {
         hintEl.classList.add("is-info");
         hintIcon.textContent = downloading ? "download" : "system_update";
         hintText.textContent = downloading
-          ? this.ui.update_downloading.replace("{percent}", String(this.updateDownloadPercent))
-          : this.ui.update_available.replace(
-              "{version}",
-              this.updateResult?.latest_version ?? "",
-            );
+          ? this.formatUpdateDownloadProgress()
+          : this.ui.update_available.replace("{version}", this.latestUpdateVersion());
         break;
       case "error":
         hintEl.classList.add("is-error");
@@ -2002,7 +2020,7 @@ export class App {
   }
 
   private showUpdateBannerIfNeeded(): void {
-    const version = this.updateResult?.latest_version;
+    const version = this.latestUpdateVersion();
     if (!version || this.updateState !== "available") {
       this.updateBannerVisible = false;
       this.paintUpdateBanner();
@@ -2021,13 +2039,13 @@ export class App {
     const progressBar = this.els.updateDownloadProgressBar;
     if (!banner || !title || !body || !progress || !progressBar) return;
 
-    const version = this.updateResult?.latest_version ?? "";
+    const version = this.latestUpdateVersion();
     const downloading = this.updateDownloadState === "downloading";
     banner.classList.toggle("hidden", !this.updateBannerVisible);
     banner.classList.toggle("is-downloading", downloading);
     title.textContent = this.ui.update_banner_title.replace("{version}", version);
     body.textContent = downloading
-      ? this.ui.update_downloading.replace("{percent}", String(this.updateDownloadPercent))
+      ? this.formatUpdateDownloadProgress()
       : this.ui.update_banner_body;
     progress.classList.toggle("hidden", !downloading);
     progressBar.style.width = `${this.updateDownloadPercent}%`;
@@ -2041,7 +2059,7 @@ export class App {
   }
 
   private dismissUpdateBanner(): void {
-    const version = this.updateResult?.latest_version;
+    const version = this.latestUpdateVersion();
     if (version) localStorage.setItem(DISMISSED_UPDATE_KEY, version);
     this.updateBannerVisible = false;
     this.paintUpdateBanner();
@@ -2063,12 +2081,17 @@ export class App {
 
     this.updateDownloadState = "downloading";
     this.updateDownloadPercent = 0;
+    this.updateDownloadedBytes = 0;
+    this.updateDownloadTotalBytes = 0;
     this.updateBannerVisible = true;
+    this.clearUpdateStatusTimer();
     this.paintUpdateBanner();
     this.paintAboutSection();
 
-    const unlisten = await onUpdateDownloadProgress((percent) => {
-      this.updateDownloadPercent = percent;
+    const unlisten = await onUpdateDownloadProgress((progress) => {
+      this.updateDownloadPercent = progress.percent;
+      this.updateDownloadedBytes = progress.downloaded;
+      this.updateDownloadTotalBytes = progress.total;
       this.paintUpdateBanner();
       this.paintAboutSection();
     });
@@ -2086,6 +2109,9 @@ export class App {
       this.updateDownloadState = "idle";
       this.paintUpdateBanner();
       this.paintAboutSection();
+      if (this.updateState === "available") {
+        this.scheduleUpdateStatusClear();
+      }
     }
   }
 
@@ -2102,6 +2128,9 @@ export class App {
     try {
       const result = await checkForUpdates();
       this.updateResult = result;
+      if (result.latest_version) {
+        this.cachedLatestVersion = result.latest_version;
+      }
       this.updateState = result.update_available ? "available" : "uptodate";
       if (fromMenu) {
         this.showToast(

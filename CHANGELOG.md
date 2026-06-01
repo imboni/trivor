@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In-app update download: 4 h HTTP timeout (ureq default 30 s aborted slow GitHub downloads), byte-level progress (`1.2 MB / 21.7 MB`), and banner keeps version after check metadata expires — 应用内更新：4 小时超时、字节级进度、横幅版本号不再消失
 - Defer startup update check until the shell has painted and loading has finished (3 s grace, no banner during model load) — 启动后延迟检查更新，界面就绪后再提示
 - Dismiss explorer popovers when opening clear-list menu; shared popover fade helper — 打开清空菜单时关闭其它浮层
 - Invalidate corrupt preview cache entries before re-running gltfpack — 损坏的预览缓存会先删除再重建

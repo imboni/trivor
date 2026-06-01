@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::{async_runtime, Emitter, Manager, State, WebviewWindow};
 use trivor_core::{LocalePreference, ModelListEntry, SceneSummary, ThemePreference};
@@ -390,6 +391,8 @@ fn up_to_date_result(current_version: String) -> UpdateCheckResult {
 #[derive(Clone, serde::Serialize)]
 pub struct DownloadProgress {
     pub percent: u8,
+    pub downloaded: u64,
+    pub total: u64,
 }
 
 fn dmg_filename_from_url(url: &str) -> String {
@@ -400,8 +403,63 @@ fn dmg_filename_from_url(url: &str) -> String {
         .unwrap_or_else(|| "Trivor-update.dmg".to_string())
 }
 
+/// ureq's default request timeout is 30s — too short for a ~20 MB DMG on slow links.
+const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(4 * 3600);
+/// Fallback total when `Content-Length` is missing (progress capped at 95% until done).
+const UPDATE_DOWNLOAD_ESTIMATED_BYTES: u64 = 25 * 1024 * 1024;
+
+fn parse_content_length(response: &ureq::Response) -> u64 {
+    response
+        .header("Content-Length")
+        .or_else(|| response.header("content-length"))
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
+fn emit_download_progress(
+    window: &WebviewWindow,
+    percent: u8,
+    downloaded: u64,
+    total: u64,
+    last_pct: &mut u8,
+    last_emitted_downloaded: &mut u64,
+) {
+    const EMIT_STEP: u64 = 32 * 1024;
+    let should_emit = percent != *last_pct
+        || downloaded.saturating_sub(*last_emitted_downloaded) >= EMIT_STEP
+        || (percent == 100 && *last_emitted_downloaded != downloaded);
+    if !should_emit {
+        return;
+    }
+    *last_pct = percent;
+    *last_emitted_downloaded = downloaded;
+    let _ = window.emit(
+        "update-download-progress",
+        DownloadProgress {
+            percent,
+            downloaded,
+            total,
+        },
+    );
+}
+
 fn download_update_blocking(url: &str, window: &WebviewWindow) -> Result<String, String> {
-    let response = ureq::get(url)
+    let agent = ureq::AgentBuilder::new()
+        .redirects(10)
+        .timeout(UPDATE_DOWNLOAD_TIMEOUT)
+        .build();
+
+    let _ = window.emit(
+        "update-download-progress",
+        DownloadProgress {
+            percent: 0,
+            downloaded: 0,
+            total: 0,
+        },
+    );
+
+    let response = agent
+        .get(url)
         .set("Accept", "application/octet-stream")
         .set("User-Agent", "Trivor")
         .call()
@@ -411,10 +469,7 @@ fn download_update_blocking(url: &str, window: &WebviewWindow) -> Result<String,
         return Err(format!("Download failed with status {}", response.status()));
     }
 
-    let total = response
-        .header("Content-Length")
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
+    let total = parse_content_length(&response);
 
     let file_name = dmg_filename_from_url(url);
     let dir = window
@@ -431,6 +486,15 @@ fn download_update_blocking(url: &str, window: &WebviewWindow) -> Result<String,
     let mut buffer = [0u8; 8192];
     let mut downloaded = 0u64;
     let mut last_pct = 255u8;
+    let mut last_emitted_downloaded = 0u64;
+    emit_download_progress(
+        window,
+        0,
+        0,
+        total,
+        &mut last_pct,
+        &mut last_emitted_downloaded,
+    );
 
     loop {
         let read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
@@ -439,16 +503,30 @@ fn download_update_blocking(url: &str, window: &WebviewWindow) -> Result<String,
         }
         file.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
         downloaded += read as u64;
-        if total > 0 {
-            let pct = ((downloaded.saturating_mul(100)) / total).min(100) as u8;
-            if pct != last_pct {
-                last_pct = pct;
-                let _ = window.emit("update-download-progress", DownloadProgress { percent: pct });
-            }
-        }
+        let pct = if total > 0 {
+            ((downloaded.saturating_mul(100)) / total).min(100) as u8
+        } else {
+            ((downloaded.saturating_mul(100)) / UPDATE_DOWNLOAD_ESTIMATED_BYTES)
+                .min(95) as u8
+        };
+        emit_download_progress(
+            window,
+            pct,
+            downloaded,
+            total,
+            &mut last_pct,
+            &mut last_emitted_downloaded,
+        );
     }
 
-    let _ = window.emit("update-download-progress", DownloadProgress { percent: 100 });
+    emit_download_progress(
+        window,
+        100,
+        downloaded,
+        total,
+        &mut last_pct,
+        &mut last_emitted_downloaded,
+    );
     Ok(dest.to_string_lossy().into_owned())
 }
 
