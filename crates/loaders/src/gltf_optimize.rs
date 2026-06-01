@@ -75,7 +75,11 @@ pub fn discover_gltfpack_from_exe_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let mut dir = exe.parent()?;
     for _ in 0..5 {
-        for name in ["gltfpack", sidecar_name()] {
+        for name in [
+            "gltfpack",
+            "gltfpack-universal-apple-darwin",
+            sidecar_name(),
+        ] {
             let candidate = dir.join(name);
             if candidate.is_file() {
                 return Some(canonical_gltfpack_path(candidate));
