@@ -33,8 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Load failures for large models show an advisory hint (no hard file-size cap) — 大模型加载失败时显示提示，不再硬性限制文件大小
 - Large-model loading copy distinguishes “preparing” vs “auto-optimizing preview”; progress starts before pack completes — 大模型加载文案区分「准备」与「自动优化预览」，避免一上来像失败
 - Universal release bundle includes merged `gltfpack` sidecar for Apple Silicon and Intel — 修复通用版安装包缺少 universal gltfpack  sidecar
-- Restore native macOS vibrancy on floating panels (regression from overlay title bar work) — 恢复侧栏、检查器、工具栏等面板的原生毛玻璃效果
-- Stronger frosted-glass panels: Sidebar vibrancy, lower tint opacity, heavier blur — 增强面板毛玻璃可见度
+- Fix panel frosted glass broken by overlay title bar change; tune blur strength — 修复 overlay 标题栏改动后面板毛玻璃失效，并增强模糊强度
 
 ## [0.1.0] - 2026-05-30
 
