@@ -1,6 +1,9 @@
 import type { UiBundle } from "./types";
 
-type ByteUnits = Pick<UiBundle, "unit_bytes_b" | "unit_bytes_kb" | "unit_bytes_mb">;
+type ByteUnits = Pick<
+  UiBundle,
+  "unit_bytes_b" | "unit_bytes_kb" | "unit_bytes_mb" | "unit_bytes_gb"
+>;
 
 export function formatAppDate(isoDate: string, locale: string): string {
   if (!isoDate || isoDate === "unknown") return "";
@@ -17,8 +20,17 @@ export function formatAppDate(isoDate: string, locale: string): string {
 }
 
 export function formatBytes(bytes: number, units: ByteUnits): string {
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(2)} ${units.unit_bytes_mb}`;
+  if (bytes >= 1024 ** 3) {
+    const gb = bytes / 1024 ** 3;
+    return gb >= 10
+      ? `${gb.toFixed(1)} ${units.unit_bytes_gb}`
+      : `${gb.toFixed(2)} ${units.unit_bytes_gb}`;
+  }
+  if (bytes >= 1024 ** 2) {
+    const mb = bytes / 1024 ** 2;
+    return mb >= 100
+      ? `${mb.toFixed(0)} ${units.unit_bytes_mb}`
+      : `${mb.toFixed(2)} ${units.unit_bytes_mb}`;
   }
   if (bytes >= 1024) {
     return `${(bytes / 1024).toFixed(1)} ${units.unit_bytes_kb}`;
@@ -28,6 +40,26 @@ export function formatBytes(bytes: number, units: ByteUnits): string {
 
 export function formatCount(n: number, locale: string): string {
   return n.toLocaleString(locale === "zh-Hans" ? "zh-Hans" : "en");
+}
+
+/** Compact triangle counts for load-limit hints (e.g. 500 万 / 5 million). */
+export function formatCompactCount(n: number, locale: string): string {
+  if (locale.startsWith("zh")) {
+    if (n >= 100_000_000) {
+      const wan = n / 10_000;
+      return Number.isInteger(wan) ? `${wan} 万` : `${wan.toFixed(1)} 万`;
+    }
+    if (n >= 10_000) {
+      const wan = n / 10_000;
+      return Number.isInteger(wan) ? `${wan} 万` : `${wan.toFixed(1)} 万`;
+    }
+    return formatCount(n, locale);
+  }
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return Number.isInteger(m) ? `${m} million` : `${m.toFixed(1)} million`;
+  }
+  return formatCount(n, locale);
 }
 
 export function formatModelCount(template: string, count: number, locale: string): string {

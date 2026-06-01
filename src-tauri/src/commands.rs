@@ -196,13 +196,7 @@ fn format_load_error(err: LoadError, i18n: &I18n) -> String {
             .t(MessageKey::ErrorUnsupportedExt)
             .replace("{ext}", &ext),
         LoadError::Io { message, .. } => message,
-        LoadError::Parse { message, .. } => {
-            if message.contains("gltfpack") {
-                i18n.t(MessageKey::ErrorGltfpackMissing).to_string()
-            } else {
-                message
-            }
-        }
+        LoadError::Parse { message, .. } => message,
     }
 }
 

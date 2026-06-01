@@ -13,6 +13,15 @@ use crate::LoadError;
 /// On-disk size above which we build a simplified meshopt preview cache.
 pub const PREVIEW_OPTIMIZE_BYTES: u64 = 200 * 1024 * 1024;
 
+/// Typical upper bound for reliable direct viewing (matches preview threshold).
+pub const VIEWER_STABLE_MAX_BYTES: u64 = PREVIEW_OPTIMIZE_BYTES;
+/// Typical upper bound for reliable direct viewing (triangle count from JSON header).
+pub const VIEWER_STABLE_MAX_TRIANGLES: u64 = 5_000_000;
+/// Above this on-disk size, simplified preview often still fails (textures dominate).
+pub const VIEWER_HARD_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+/// Above this triangle count, WKWebView often OOMs even after mesh simplification.
+pub const VIEWER_HARD_MAX_TRIANGLES: u64 = 20_000_000;
+
 #[derive(Debug, Clone)]
 pub struct GltfQuickStats {
     pub file_size: u64,

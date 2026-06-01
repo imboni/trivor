@@ -55,6 +55,17 @@ Implementation: `PREVIEW_OPTIMIZE_BYTES` in `crates/loaders/src/gltf_inspect.rs`
 
 **Loading the original monolithic GLB at full fidelity inside the current web viewport is not achievable** without changing the rendering architecture.
 
+### Export guide (current release)
+
+On load failure the app shows these reference limits (see `VIEWER_*` in `gltf_inspect.rs`):
+
+| Tier | File size | Triangles | Notes |
+|------|-----------|-----------|-------|
+| Usually OK | ≤ 200 MB | ≤ 5 million | Opens directly in most cases |
+| High risk | > 1 GB | > 20 million | May fail even after auto simplified preview |
+
+When textures dominate file size, **resize textures** before re-export. Clear preview cache in **Settings → Storage** and retry.
+
 ---
 
 ## Planned direction (not implemented)

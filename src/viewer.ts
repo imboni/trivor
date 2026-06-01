@@ -382,7 +382,13 @@ export class ModelViewport {
           modelReady = true;
           void settle().finally(() => finish(resolve));
         };
-        const onError = () => finish(() => reject(new Error(loadErrorMessage)));
+        const onError = (event?: Event) => {
+          const detail = event
+            ? (event as CustomEvent<{ sourceError?: Error }>).detail?.sourceError
+            : undefined;
+          const reason = detail?.message?.trim();
+          finish(() => reject(new Error(reason || loadErrorMessage)));
+        };
         abort.signal.addEventListener("abort", () => finish(resolve), { once: true });
         mv.addEventListener("load", onReady, { once: true, signal: abort.signal });
         mv.addEventListener("error", onError, { once: true, signal: abort.signal });

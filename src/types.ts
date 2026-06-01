@@ -56,6 +56,7 @@ export interface UiBundle {
   cancel: string;
   inspector_title: string;
   error_title: string;
+  error_dismiss: string;
   model_count: string;
   panel_materials: string;
   panel_dimensions: string;
@@ -71,9 +72,14 @@ export interface UiBundle {
   error_unknown_file_type: string;
   error_unsupported_ext: string;
   error_gltf_sidecar_hint: string;
+  error_gltfpack_missing: string;
+  error_gltfpack_preview_failed: string;
   error_large_model_hint: string;
   large_model_preview_notice: string;
   error_viewer_load: string;
+  error_preview_render_failed: string;
+  error_large_viewer_failed: string;
+  load_export_advice: string;
   tool_zoom_in: string;
   tool_zoom_out: string;
   tool_reset_view: string;
@@ -102,6 +108,7 @@ export interface UiBundle {
   unit_bytes_b: string;
   unit_bytes_kb: string;
   unit_bytes_mb: string;
+  unit_bytes_gb: string;
   language: string;
   lang_en: string;
   lang_zh: string;

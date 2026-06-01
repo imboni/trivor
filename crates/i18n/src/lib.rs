@@ -167,6 +167,8 @@ impl I18n {
             (_, MessageKey::InspectorTitle) => "Inspector",
             (Locale::ZhHans, MessageKey::ErrorTitle) => "无法加载",
             (_, MessageKey::ErrorTitle) => "Couldn't load",
+            (Locale::ZhHans, MessageKey::ErrorDismiss) => "关闭",
+            (_, MessageKey::ErrorDismiss) => "Close",
             (Locale::ZhHans, MessageKey::ModelCount) => "{n} 个模型",
             (_, MessageKey::ModelCount) => "{n} models",
             (Locale::ZhHans, MessageKey::PanelMaterials) => "材质",
@@ -220,25 +222,49 @@ impl I18n {
                 "Tip: keep .gltf together with its .bin and texture files in one folder."
             }
             (Locale::ZhHans, MessageKey::ErrorGltfpackMissing) => {
-                "无法为超大模型生成预览。请重新安装应用，或导出更小的 GLB。"
+                "应用缺少大模型预览组件，安装可能不完整。请从 GitHub Release 下载最新完整版。"
             }
             (_, MessageKey::ErrorGltfpackMissing) => {
-                "Could not generate a preview for this large model. Reinstall the app, or export a smaller GLB."
+                "The large-model preview component is missing — the app install may be incomplete. Download the latest release from GitHub."
+            }
+            (Locale::ZhHans, MessageKey::ErrorGltfpackPreviewFailed) => {
+                "原文件约 {size}，无法自动生成简化版。\n\n请导出更小的 GLB（缩小贴图、减少面数），或释放磁盘空间后重试。"
+            }
+            (_, MessageKey::ErrorGltfpackPreviewFailed) => {
+                "Original file: about {size}. Could not build a simplified preview.\n\nExport a smaller GLB (smaller textures, fewer polygons) or free disk space, then try again."
             }
             (Locale::ZhHans, MessageKey::ErrorLargeModelHint) => {
-                "该模型较大（{size}）。将自动生成简化预览；若仍失败，请尝试导出更小的 GLB。"
+                "原文件约 {size}，将先自动生成简化版再打开。"
             }
             (_, MessageKey::ErrorLargeModelHint) => {
-                "This model is large ({size}). A simplified preview will be generated automatically; if loading still fails, try a smaller GLB export."
+                "Original file: about {size}. A simplified preview will be built first."
             }
             (Locale::ZhHans, MessageKey::LargeModelPreviewNotice) => {
-                "模型较大（{size}），已显示简化预览，原文件未修改。"
+                "原文件约 {size}，当前显示的是简化版，原文件未被修改。"
             }
             (_, MessageKey::LargeModelPreviewNotice) => {
-                "Large model ({size}) — showing a simplified preview. Original file unchanged."
+                "Original file: about {size}. Showing a simplified preview; your file is unchanged."
             }
-            (Locale::ZhHans, MessageKey::ErrorViewerLoad) => "模型加载失败",
-            (_, MessageKey::ErrorViewerLoad) => "Failed to load model",
+            (Locale::ZhHans, MessageKey::ErrorViewerLoad) => "无法显示这个模型。",
+            (_, MessageKey::ErrorViewerLoad) => "This model could not be displayed.",
+            (Locale::ZhHans, MessageKey::ErrorPreviewRenderFailed) => {
+                "原文件约 {size}。已生成简化版，但窗口仍无法显示。\n\n可在「设置 → 存储」清除预览缓存后重试。"
+            }
+            (_, MessageKey::ErrorPreviewRenderFailed) => {
+                "Original file: about {size}. A simplified preview was built, but it still could not be shown.\n\nClear preview cache in Settings → Storage and try again."
+            }
+            (Locale::ZhHans, MessageKey::ErrorLargeViewerFailed) => {
+                "原文件约 {size}，窗口无法加载。"
+            }
+            (_, MessageKey::ErrorLargeViewerFailed) => {
+                "Original file: about {size}. The viewer cannot load this file."
+            }
+            (Locale::ZhHans, MessageKey::LoadExportAdvice) => {
+                "建议导出：单文件 ≤ {stable_size}、三角面 ≤ {stable_tris} 以内较稳；超过 {hard_size} 或 {hard_tris} 时可能无法显示（贴图过大请先缩小贴图分辨率）。"
+            }
+            (_, MessageKey::LoadExportAdvice) => {
+                "Export guide: ≤ {stable_size} and ≤ {stable_tris} triangles usually works; above {hard_size} or {hard_tris} may fail (resize textures if the file stays large)."
+            }
             (Locale::ZhHans, MessageKey::ToolZoomIn) => "放大 (+)",
             (_, MessageKey::ToolZoomIn) => "Zoom in (+)",
             (Locale::ZhHans, MessageKey::ToolZoomOut) => "缩小 (−)",
@@ -295,6 +321,8 @@ impl I18n {
             (_, MessageKey::UnitBytesKb) => "KB",
             (Locale::ZhHans, MessageKey::UnitBytesMb) => "MB",
             (_, MessageKey::UnitBytesMb) => "MB",
+            (Locale::ZhHans, MessageKey::UnitBytesGb) => "GB",
+            (_, MessageKey::UnitBytesGb) => "GB",
 
             // Settings
             (Locale::ZhHans, MessageKey::Language) => "语言",
@@ -420,6 +448,7 @@ pub enum MessageKey {
     Cancel,
     InspectorTitle,
     ErrorTitle,
+    ErrorDismiss,
     ModelCount,
     PanelMaterials,
     PanelDimensions,
@@ -436,9 +465,13 @@ pub enum MessageKey {
     ErrorUnsupportedExt,
     ErrorGltfSidecarHint,
     ErrorGltfpackMissing,
+    ErrorGltfpackPreviewFailed,
     ErrorLargeModelHint,
     LargeModelPreviewNotice,
     ErrorViewerLoad,
+    ErrorPreviewRenderFailed,
+    ErrorLargeViewerFailed,
+    LoadExportAdvice,
     ToolZoomIn,
     ToolZoomOut,
     ToolResetView,
@@ -466,6 +499,7 @@ pub enum MessageKey {
     UnitBytesB,
     UnitBytesKb,
     UnitBytesMb,
+    UnitBytesGb,
     Language,
     LangEn,
     LangZh,
@@ -553,6 +587,7 @@ pub struct UiBundle {
     pub cancel: String,
     pub inspector_title: String,
     pub error_title: String,
+    pub error_dismiss: String,
     pub model_count: String,
     pub panel_materials: String,
     pub panel_dimensions: String,
@@ -568,9 +603,14 @@ pub struct UiBundle {
     pub error_unknown_file_type: String,
     pub error_unsupported_ext: String,
     pub error_gltf_sidecar_hint: String,
+    pub error_gltfpack_missing: String,
+    pub error_gltfpack_preview_failed: String,
     pub error_large_model_hint: String,
     pub large_model_preview_notice: String,
     pub error_viewer_load: String,
+    pub error_preview_render_failed: String,
+    pub error_large_viewer_failed: String,
+    pub load_export_advice: String,
     pub tool_zoom_in: String,
     pub tool_zoom_out: String,
     pub tool_reset_view: String,
@@ -599,6 +639,7 @@ pub struct UiBundle {
     pub unit_bytes_b: String,
     pub unit_bytes_kb: String,
     pub unit_bytes_mb: String,
+    pub unit_bytes_gb: String,
     pub language: String,
     pub lang_en: String,
     pub lang_zh: String,
@@ -706,6 +747,7 @@ impl UiBundle {
             cancel: t(MessageKey::Cancel),
             inspector_title: t(MessageKey::InspectorTitle),
             error_title: t(MessageKey::ErrorTitle),
+            error_dismiss: t(MessageKey::ErrorDismiss),
             model_count: t(MessageKey::ModelCount),
             panel_materials: t(MessageKey::PanelMaterials),
             panel_dimensions: t(MessageKey::PanelDimensions),
@@ -721,9 +763,14 @@ impl UiBundle {
             error_unknown_file_type: t(MessageKey::ErrorUnknownFileType),
             error_unsupported_ext: t(MessageKey::ErrorUnsupportedExt),
             error_gltf_sidecar_hint: t(MessageKey::ErrorGltfSidecarHint),
+            error_gltfpack_missing: t(MessageKey::ErrorGltfpackMissing),
+            error_gltfpack_preview_failed: t(MessageKey::ErrorGltfpackPreviewFailed),
             error_large_model_hint: t(MessageKey::ErrorLargeModelHint),
             large_model_preview_notice: t(MessageKey::LargeModelPreviewNotice),
             error_viewer_load: t(MessageKey::ErrorViewerLoad),
+            error_preview_render_failed: t(MessageKey::ErrorPreviewRenderFailed),
+            error_large_viewer_failed: t(MessageKey::ErrorLargeViewerFailed),
+            load_export_advice: t(MessageKey::LoadExportAdvice),
             tool_zoom_in: t(MessageKey::ToolZoomIn),
             tool_zoom_out: t(MessageKey::ToolZoomOut),
             tool_reset_view: t(MessageKey::ToolResetView),
@@ -752,6 +799,7 @@ impl UiBundle {
             unit_bytes_b: t(MessageKey::UnitBytesB),
             unit_bytes_kb: t(MessageKey::UnitBytesKb),
             unit_bytes_mb: t(MessageKey::UnitBytesMb),
+            unit_bytes_gb: t(MessageKey::UnitBytesGb),
             language: t(MessageKey::Language),
             lang_en: t(MessageKey::LangEn),
             lang_zh: t(MessageKey::LangZh),

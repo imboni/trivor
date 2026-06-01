@@ -115,11 +115,38 @@ fn preview_cache_key(source: &Path, stats: &GltfQuickStats) -> Result<String, Lo
     Ok(format!("{stem}-{mtime}-preview-{ratio:.3}"))
 }
 
-fn run_gltfpack(source: &Path, dest: &Path, ratio: f32) -> Result<(), LoadError> {
-    let gltfpack = resolve_gltfpack().ok_or_else(|| LoadError::Parse {
+fn preview_cache_usable(cached: &Path, source: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(cached) else {
+        return false;
+    };
+    if meta.len() < 256 {
+        return false;
+    }
+    let Ok(src_meta) = std::fs::metadata(source) else {
+        return false;
+    };
+    match (meta.modified(), src_meta.modified()) {
+        (Ok(c), Ok(s)) => c >= s,
+        _ => false,
+    }
+}
+
+fn preview_failed_error(source: &Path, file_size: u64) -> LoadError {
+    LoadError::Parse {
         path: source.to_path_buf(),
-        message: "gltfpack sidecar not found (run scripts/fetch-gltfpack.sh)".into(),
-    })?;
+        message: format!("GLTFPACK_PREVIEW_FAILED:{file_size}"),
+    }
+}
+
+fn sidecar_missing_error(source: &Path) -> LoadError {
+    LoadError::Parse {
+        path: source.to_path_buf(),
+        message: "GLTFPACK_SIDECAR_MISSING".into(),
+    }
+}
+
+fn run_gltfpack(source: &Path, dest: &Path, ratio: f32, file_size: u64) -> Result<(), LoadError> {
+    let gltfpack = resolve_gltfpack().ok_or_else(|| sidecar_missing_error(source))?;
 
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| LoadError::Io {
@@ -137,9 +164,9 @@ fn run_gltfpack(source: &Path, dest: &Path, ratio: f32) -> Result<(), LoadError>
         .arg("-si")
         .arg(format!("{ratio:.4}"))
         .output()
-        .map_err(|e| LoadError::Io {
-            path: source.to_path_buf(),
-            message: format!("failed to run gltfpack: {e}"),
+        .map_err(|e| {
+            tracing::warn!(path = %source.display(), %e, "failed to run gltfpack");
+            preview_failed_error(source, file_size)
         })?;
 
     if output.status.success() {
@@ -148,19 +175,14 @@ fn run_gltfpack(source: &Path, dest: &Path, ratio: f32) -> Result<(), LoadError>
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(LoadError::Parse {
-        path: source.to_path_buf(),
-        message: format!(
-            "gltfpack failed (exit {}): {}{}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim(),
-            if stdout.trim().is_empty() {
-                String::new()
-            } else {
-                format!("\n{}", stdout.trim())
-            }
-        ),
-    })
+    tracing::warn!(
+        path = %source.display(),
+        exit = output.status.code().unwrap_or(-1),
+        stderr = %stderr.trim(),
+        stdout = %stdout.trim(),
+        "gltfpack failed"
+    );
+    Err(preview_failed_error(source, file_size))
 }
 
 pub fn optimize_preview_to_cache(
@@ -177,16 +199,13 @@ pub fn optimize_preview_to_cache(
     let key = preview_cache_key(source, stats)?;
     let dest = cache_dir.join(format!("{key}.glb"));
 
-    let needs_run = match (std::fs::metadata(&dest), std::fs::metadata(source)) {
-        (Ok(cached), Ok(src)) => match (cached.modified(), src.modified()) {
-            (Ok(c), Ok(s)) => c < s,
-            _ => true,
-        },
-        _ => true,
-    };
+    let needs_run = !preview_cache_usable(&dest, source);
 
     report_progress(progress, 2);
     if needs_run {
+        if dest.is_file() {
+            let _ = std::fs::remove_file(&dest);
+        }
         let ratio = preview_simplify_ratio(stats.file_size);
         tracing::info!(
             path = %source.display(),
@@ -197,7 +216,7 @@ pub fn optimize_preview_to_cache(
             "building meshopt preview with gltfpack"
         );
         report_progress(progress, 10);
-        run_gltfpack(source, &dest, ratio)?;
+        run_gltfpack(source, &dest, ratio, stats.file_size)?;
         report_progress(progress, 95);
     }
     report_progress(progress, 100);
@@ -215,13 +234,7 @@ pub fn maybe_optimize_preview(
     }
     report_progress(progress, 1);
     if !gltfpack_configured() {
-        return Err(LoadError::Parse {
-            path: source.to_path_buf(),
-            message: format!(
-                "model is {:.0} MB — install gltfpack (scripts/fetch-gltfpack.sh) or export a smaller GLB",
-                stats.file_size as f64 / (1024.0 * 1024.0)
-            ),
-        });
+        return Err(sidecar_missing_error(source));
     }
     optimize_preview_to_cache(source, stats, progress)
 }

@@ -71,12 +71,11 @@ export const MAX_LIBRARY_MODELS = 100;
 
 /** Advisory hint when load fails for models at or above this on-disk size. */
 const LARGE_MODEL_HINT_BYTES = 100 * 1024 * 1024;
-/** Auto meshopt preview threshold (matches Rust PREVIEW_OPTIMIZE_BYTES). */
-const PREVIEW_OPTIMIZE_BYTES = 200 * 1024 * 1024;
-
-function isPreviewCachePath(viewerPath: string): boolean {
-  return viewerPath.includes("-preview-");
-}
+import {
+  isPreviewCachePath,
+  PREVIEW_OPTIMIZE_BYTES,
+  resolveLoadFailureMessage,
+} from "./load-failure";
 
 type LocalePref = "en" | "zh-Hans" | "system";
 
@@ -106,6 +105,8 @@ export class App {
   private loadingExpectsPreview = false;
   private loadingStage: "parse" | "pack" | "render" = "parse";
   private status = "";
+  private loadFailure: { path: string; viewerPath: string | null; raw: string } | null =
+    null;
   private settingsOpen = false;
   private clearConfirmOpen = false;
   private cacheConfirmOpen = false;
@@ -460,6 +461,13 @@ export class App {
       if (this.phase === "ready") void this.fitView();
     });
 
+    this.els.overlay.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-action=dismiss-error]");
+      if (!btn) return;
+      e.preventDefault();
+      this.dismissError();
+    });
+
     this.els.toolZoomIn.addEventListener("click", () => {
       this.viewport.zoomIn();
       this.viewport.focus();
@@ -801,6 +809,21 @@ export class App {
     this.paintModelCount();
     this.renderLocaleSegments();
     this.renderThemeSegments();
+    if (this.phase === "error" && this.loadFailure) {
+      this.refreshLoadFailureStatus();
+    }
+  }
+
+  private refreshLoadFailureStatus(): void {
+    if (!this.loadFailure) return;
+    this.status = resolveLoadFailureMessage(
+      this.ui,
+      this.loadFailure.path,
+      new Error(this.loadFailure.raw),
+      this.loadFailure.viewerPath,
+      (p) => this.modelFileSizeForPath(p),
+    );
+    delete this.els.overlay.dataset.overlayKind;
   }
 
   private paintModelCount(): void {
@@ -857,6 +880,22 @@ export class App {
   private onKey(e: KeyboardEvent): void {
     if (this.shortcutRecording) {
       this.handleShortcutRecord(e);
+      return;
+    }
+
+    if (
+      e.key === "Escape" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      this.phase === "error" &&
+      !this.settingsOpen &&
+      !this.cacheConfirmOpen &&
+      !this.clearConfirmOpen
+    ) {
+      e.preventDefault();
+      this.dismissError();
       return;
     }
 
@@ -1154,10 +1193,23 @@ export class App {
     await this.viewport.fit();
   }
 
+  private modelPanelsVisible(): boolean {
+    const hasErrorMetadata =
+      this.phase === "error" &&
+      this.activePath !== null &&
+      this.summaryCache.has(this.activePath);
+    return (
+      this.phase === "ready" ||
+      (this.phase === "loading" && this.activePath !== null) ||
+      hasErrorMetadata ||
+      (this.models.length > 0 &&
+        (this.phase === "error" || (this.phase === "empty" && this.activePath === null)))
+    );
+  }
+
   private viewportFramingContext() {
     const interactive = this.phase === "ready";
-    const showModelPanels =
-      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    const showModelPanels = this.modelPanelsVisible();
     const hasLibrary = showModelPanels && this.models.length > 0;
     return {
       cinemaMode: this.cinemaMode,
@@ -1327,9 +1379,7 @@ export class App {
 
   private toggleInspectorCollapsed(): void {
     if (this.cinemaMode) return;
-    const showModelPanels =
-      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
-    if (!showModelPanels) return;
+    if (!this.modelPanelsVisible()) return;
     this.inspectorCollapsed = !this.inspectorCollapsed;
     this.paint();
   }
@@ -1356,8 +1406,7 @@ export class App {
       inspIcon.textContent = this.inspectorCollapsed ? "chevron_left" : "chevron_right";
     }
 
-    const showModelPanels =
-      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    const showModelPanels = this.modelPanelsVisible();
     const showLibraryToggle = showModelPanels && this.models.length > 0 && !this.cinemaMode;
     const librarySlot = this.els.toggleLibrary.parentElement;
     librarySlot?.classList.toggle("is-visible", showLibraryToggle);
@@ -1599,6 +1648,17 @@ export class App {
     this.showToast(message);
   }
 
+  private dismissError(): void {
+    if (this.phase !== "error") return;
+    this.loadFailure = null;
+    this.status = "";
+    this.activePath = null;
+    this.summary = null;
+    this.viewport.clear();
+    this.phase = "empty";
+    this.paint();
+  }
+
   private showToast(message: string, tone: "default" | "success" | "error" = "default"): void {
     const el = this.els.toast;
     const icon = tone === "success" ? "check_circle" : tone === "error" ? "error_outline" : "info";
@@ -1626,15 +1686,6 @@ export class App {
     const size = this.modelFileSizeForPath(path);
     if (size < LARGE_MODEL_HINT_BYTES) return null;
     return this.ui.error_large_model_hint.replace("{size}", formatBytes(size, this.ui));
-  }
-
-  private formatLoadErrorMessage(path: string, msg: string): string {
-    let out = msg;
-    const sidecar = gltfLoadHint(path, this.ui);
-    if (sidecar && !out.includes(sidecar)) out = `${out}\n${sidecar}`;
-    const large = this.largeModelLoadHint(path);
-    if (large && !out.includes(large)) out = `${out}\n${large}`;
-    return out;
   }
 
   private clearUpdateStatusTimer(): void {
@@ -1978,6 +2029,8 @@ export class App {
 
     await flushUi();
 
+    let viewerPath: string | null = null;
+    let summaryPromise: Promise<SceneSummary> | null = null;
     try {
       const cached = this.summaryCache.get(path);
       let fileSize = 0;
@@ -1998,7 +2051,7 @@ export class App {
         this.paintCinemaControls();
       }
 
-      const summaryPromise = cached
+      summaryPromise = cached
         ? Promise.resolve(cached)
         : loadModel(path).then((summary) => {
             this.summaryCache.set(path, summary);
@@ -2008,9 +2061,14 @@ export class App {
             }
             return summary;
           });
-      const viewerPathPromise = resolveViewerModelPath(path);
 
-      const [summary, viewerPath] = await Promise.all([summaryPromise, viewerPathPromise]);
+      viewerPath = await resolveViewerModelPath(path);
+      if (token !== this.loadToken) return;
+
+      this.packProgress = 100;
+      this.syncLoadingProgress();
+
+      const summary = await summaryPromise;
       if (token !== this.loadToken) return;
 
       this.loadingStage = "render";
@@ -2061,9 +2119,27 @@ export class App {
       }
     } catch (err) {
       if (token !== this.loadToken) return;
+      if (summaryPromise) {
+        try {
+          const summary = await summaryPromise;
+          this.summaryCache.set(path, summary);
+        } catch {
+          /* metadata optional for error copy */
+        }
+      }
+      this.loadFailure = {
+        path,
+        viewerPath,
+        raw: err instanceof Error ? err.message : String(err),
+      };
       this.phase = "error";
-      const msg = err instanceof Error ? err.message : String(err);
-      this.status = this.formatLoadErrorMessage(path, msg);
+      this.status = resolveLoadFailureMessage(
+        this.ui,
+        path,
+        err,
+        viewerPath,
+        (p) => this.modelFileSizeForPath(p),
+      );
       const largeHint = this.largeModelLoadHint(path);
       if (largeHint && !this.loadingExpectsPreview) this.showToast(largeHint, "error");
       if (!this.summary) this.viewport.clear();
@@ -2073,7 +2149,10 @@ export class App {
 
   private paint(): void {
     const interactive = this.phase === "ready";
-    const overlayVisible = this.phase !== "ready";
+    const overlayVisible =
+      this.phase === "loading" ||
+      this.phase === "error" ||
+      (this.phase === "empty" && this.models.length === 0);
     const switching = this.phase === "loading" && this.summary !== null;
 
     this.els.settingsBackdrop.classList.toggle("hidden", !this.settingsOpen);
@@ -2107,8 +2186,7 @@ export class App {
     this.els.overlay.classList.toggle("is-loading", this.phase === "loading");
     this.els.overlay.classList.toggle("is-switching", switching);
     this.els.overlay.classList.toggle("is-error", this.phase === "error");
-    const showModelPanels =
-      this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
+    const showModelPanels = this.modelPanelsVisible();
     const hasLibrary = showModelPanels && this.models.length > 0;
 
     this.shell.classList.toggle("is-cinema", this.cinemaMode);
@@ -2143,6 +2221,10 @@ export class App {
     const body = this.els.inspectorBody;
     const loading = this.phase === "loading" && this.activePath !== null;
     const ready = this.phase === "ready" && this.summary !== null;
+    const failedSummary =
+      this.phase === "error" && this.activePath
+        ? this.summaryCache.get(this.activePath)
+        : undefined;
     const titleEntry = this.activePath
       ? this.models.find((m) => m.path === this.activePath)
       : undefined;
@@ -2150,11 +2232,14 @@ export class App {
       ? `loading:${this.activePath}:${this.ui.locale}`
       : ready
         ? `model:${this.summary!.path}:${this.ui.locale}`
-        : "idle";
+        : failedSummary
+          ? `error:${failedSummary.path}:${this.ui.locale}`
+          : "idle";
 
-    this.els.inspectorTitle.textContent = titleEntry?.name ?? this.summary?.name ?? "—";
+    this.els.inspectorTitle.textContent =
+      titleEntry?.name ?? failedSummary?.name ?? this.summary?.name ?? "—";
     body.classList.toggle("is-loading", loading);
-    body.classList.toggle("is-placeholder", !loading && !ready);
+    body.classList.toggle("is-placeholder", !loading && !ready && !failedSummary);
     if (body.dataset.contentKey === contentKey) return;
 
     body.dataset.contentKey = contentKey;
@@ -2162,7 +2247,9 @@ export class App {
       ? this.inspectorSkeletonHtml(this.ui)
       : ready
         ? this.inspectorHtml(this.ui, this.summary!)
-        : "";
+        : failedSummary
+          ? this.inspectorHtml(this.ui, failedSummary)
+          : "";
   }
 
   private inspectorSkeletonHtml(ui: UiBundle): string {
@@ -2354,7 +2441,10 @@ export class App {
       if (label) label.textContent = this.loadingLabel();
       return;
     }
-    const kind = this.phase === "empty" ? `empty:${this.ui.locale}` : `${this.phase}:full`;
+    const kind =
+      this.phase === "empty"
+        ? `empty:${this.ui.locale}`
+        : `${this.phase}:${this.ui.locale}`;
     if (this.els.overlay.dataset.overlayKind !== kind) {
       this.els.overlay.dataset.overlayKind = kind;
       this.els.overlay.innerHTML = this.overlayHtml(this.ui);
@@ -2429,6 +2519,7 @@ export class App {
           <div class="error-icon" aria-hidden="true">!</div>
           <h3 class="error-title">${escapeHtml(ui.error_title)}</h3>
           <p class="error-message">${escapeHtml(this.status)}</p>
+          <button type="button" class="error-dismiss" data-action="dismiss-error">${escapeHtml(ui.error_dismiss)}</button>
         </div>`;
     }
     return "";

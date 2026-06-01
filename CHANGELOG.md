@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Large-model load failures: clearer bilingual copy, export size/triangle guidance, inspector metadata when available, dismissible error overlay — 大模型加载失败：中英文说明、导出建议、失败时属性面板、可关闭错误层
+- gltfpack / viewer errors localized in the web shell (follows Settings language) — 大模型错误文案改由前端 i18n，随设置语言切换
+- Unified file-size display (GB above 1 GiB) — 文件大小显示统一（≥ 1 GiB 用 GB）
+
+### Fixed
+
+- Invalidate corrupt preview cache entries before re-running gltfpack — 损坏的预览缓存会先删除再重建
+- Suppress raw model-viewer JavaScript errors in the UI — 不再向用户展示 model-viewer 内部 JS 报错
+
 ## [0.1.1] - 2026-06-01
 
 ### Added

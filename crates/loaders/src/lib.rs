@@ -79,6 +79,10 @@ use thiserror::Error;
 use trivor_core::SceneSummary;
 
 pub use folder::list_models_in_folder;
+pub use gltf_inspect::{
+    PREVIEW_OPTIMIZE_BYTES, VIEWER_HARD_MAX_BYTES, VIEWER_HARD_MAX_TRIANGLES,
+    VIEWER_STABLE_MAX_BYTES, VIEWER_STABLE_MAX_TRIANGLES,
+};
 pub use gltf_loader::{inspect_gltf_summary, ProgressFn};
 pub use gltf_optimize::{
     discover_gltfpack_from_exe_dir, ensure_gltfpack_configured, set_gltfpack_dev_bundle,
