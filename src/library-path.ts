@@ -19,17 +19,29 @@ export function parentDirFromPath(filePath: string): string | null {
   return normalized.slice(0, slash);
 }
 
-export function resolveLibraryMenuFolder(target: HTMLElement): string | null {
-  const folder = target.closest<HTMLElement>(".lib-folder[data-folder-key]");
-  if (folder?.dataset.folderKey) return folder.dataset.folderKey;
+export type LibraryMenuContext = {
+  /** Directory to rescan when choosing “refresh folder”. */
+  folderDir: string | null;
+  /** File or folder path passed to reveal_in_finder. */
+  revealPath: string | null;
+};
 
+export function resolveLibraryMenuContext(target: HTMLElement): LibraryMenuContext {
   const modelRow = target.closest<HTMLElement>(".model-row");
   if (modelRow) {
     const path = modelRow
       .querySelector<HTMLElement>("[data-action=select-model]")
       ?.getAttribute("data-model-path");
-    if (path) return parentDirFromPath(path);
+    if (path) {
+      return { folderDir: parentDirFromPath(path), revealPath: path };
+    }
   }
 
-  return null;
+  const folder = target.closest<HTMLElement>(".lib-folder[data-folder-key]");
+  if (folder?.dataset.folderKey) {
+    const key = folder.dataset.folderKey;
+    return { folderDir: key, revealPath: key };
+  }
+
+  return { folderDir: null, revealPath: null };
 }

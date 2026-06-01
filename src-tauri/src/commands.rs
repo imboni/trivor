@@ -224,10 +224,11 @@ fn reveal_path_in_file_manager(path: &Path) -> std::io::Result<std::process::Exi
 
     #[cfg(target_os = "macos")]
     {
-        if path.is_dir() {
-            Command::new("open").arg(path).status()
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if canonical.is_dir() {
+            Command::new("open").arg(&canonical).status()
         } else {
-            Command::new("open").args(["-R"]).arg(path).status()
+            Command::new("open").args(["-R"]).arg(&canonical).status()
         }
     }
 

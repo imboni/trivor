@@ -43,7 +43,7 @@ import {
 } from "./format";
 import { activeModelFolderKey, libraryTreeListKey, renderLibraryTree } from "./library-tree";
 import { LibraryContextMenu } from "./library-menu";
-import { isPathUnderDir, resolveLibraryMenuFolder } from "./library-path";
+import { isPathUnderDir, resolveLibraryMenuContext } from "./library-path";
 import {
   bindingFromEvent,
   renderShortcutsSettings,
@@ -109,7 +109,13 @@ export class App {
     null;
   private settingsOpen = false;
   private clearConfirmOpen = false;
+  private static readonly POP_MOTION_MS = 200;
+
+  private libraryClearPopShown = false;
+  private libraryClearPopTimer: ReturnType<typeof setTimeout> | null = null;
   private cacheConfirmOpen = false;
+  private cacheClearPopShown = false;
+  private cacheClearPopTimer: ReturnType<typeof setTimeout> | null = null;
   private viewerCacheBytes: number | null = null;
   private cacheSizeFetchedForSettings = false;
   private cacheClearing = false;
@@ -198,6 +204,7 @@ export class App {
       inspectorBody: pick("[data-bind=inspector]"),
       settingsBackdrop: pick("[data-bind=settings]"),
       settingsPanel: pick(".settings-panel"),
+      settingsBody: pick(".settings-body"),
       settingsTitle: pick("[data-bind=settings-title]"),
       languageLabel: pick("[data-bind=language-label]"),
       localeGroup: pick("[data-bind=locale-group]"),
@@ -264,9 +271,13 @@ export class App {
     this.viewport = new ModelViewport(this.els.viewportHost);
     this.axisWidget = new AxisOrientationWidget(this.els.axisWidget, () => this.viewport.element);
     this.libraryMenu = new LibraryContextMenu(this.shell);
-    this.libraryMenu.setHandler((action, folderDir) => {
-      if (action === "refresh-folder" && folderDir) {
-        void this.refreshFolder(folderDir);
+    this.libraryMenu.setHandler((action, ctx) => {
+      if (action === "show-in-folder" && ctx.revealPath) {
+        void revealModelInFolder(ctx.revealPath);
+        return;
+      }
+      if (action === "refresh-folder" && ctx.folderDir) {
+        void this.refreshFolder(ctx.folderDir);
         return;
       }
       if (action === "refresh-library") {
@@ -279,6 +290,15 @@ export class App {
     this.bindCinemaChromeIdle();
     this.bindParallax();
     window.addEventListener("resize", () => this.scheduleFramingInsets(), { passive: true });
+    window.addEventListener(
+      "resize",
+      () => {
+        if (!this.cacheConfirmOpen || !this.settingsOpen) return;
+        this.cacheConfirmOpen = false;
+        this.paintCacheSection();
+      },
+      { passive: true },
+    );
   }
 
   async start(): Promise<void> {
@@ -339,10 +359,12 @@ export class App {
     bind("open-license", () => void this.openLicense());
     bind("clear-cache", () => {
       if ((this.els.clearCacheBtn as HTMLButtonElement).disabled) return;
-      this.cacheConfirmOpen = true;
+      this.dismissExplorerPopovers();
+      this.cacheConfirmOpen = !this.cacheConfirmOpen;
       this.paintCacheSection();
     });
 
+    this.els.cacheClearConfirm.addEventListener("click", (e) => e.stopPropagation());
     this.els.cacheClearConfirmCancel.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -391,8 +413,7 @@ export class App {
         void this.pickFolder();
         break;
       case "settings":
-        this.settingsOpen = true;
-        this.paint();
+        this.openSettings();
         break;
       case "zoom-in":
         if (this.phase === "ready") this.viewport.zoomIn();
@@ -407,8 +428,7 @@ export class App {
         void this.fitView();
         break;
       case "check-updates":
-        this.settingsOpen = true;
-        this.paint();
+        this.openSettings();
         void this.handleCheckUpdates(true);
         break;
       case "release-notes":
@@ -429,16 +449,48 @@ export class App {
     this.els.sidebarOpenFile.addEventListener("click", () => void this.pickFile());
     this.els.sidebarOpenFolder.addEventListener("click", () => void this.pickFolder());
     this.els.settingsBtn.addEventListener("click", () => {
-      this.settingsOpen = true;
-      this.paint();
+      this.openSettings();
     });
-    this.els.settingsPanel.addEventListener("click", (e) => e.stopPropagation());
-    this.els.settingsBackdrop.addEventListener("click", () => {
-      this.settingsOpen = false;
-      this.cacheConfirmOpen = false;
-      this.cacheSizeFetchedForSettings = false;
-      this.shortcutRecording = null;
-      this.paint();
+    this.els.settingsPanel.addEventListener("click", (e) => {
+      if (this.cacheConfirmOpen) {
+        const target = e.target as HTMLElement;
+        if (
+          !target.closest("[data-bind=cache-clear-confirm]") &&
+          !target.closest("[data-action=clear-cache]")
+        ) {
+          this.cacheConfirmOpen = false;
+          this.paintCacheSection();
+        }
+      }
+      e.stopPropagation();
+    });
+    this.els.settingsBody.addEventListener(
+      "scroll",
+      () => {
+        if (!this.cacheConfirmOpen) return;
+        this.cacheConfirmOpen = false;
+        this.paintCacheSection();
+      },
+      { passive: true },
+    );
+    this.els.settingsBackdrop.addEventListener("click", (e) => {
+      if (this.cacheConfirmOpen) {
+        const target = e.target as HTMLElement;
+        if (
+          !target.closest("[data-bind=cache-clear-confirm]") &&
+          !target.closest("[data-action=clear-cache]")
+        ) {
+          this.cacheConfirmOpen = false;
+          this.paintCacheSection();
+        }
+      }
+      if ((e.target as HTMLElement) === this.els.settingsBackdrop) {
+        this.settingsOpen = false;
+        this.cacheConfirmOpen = false;
+        this.cacheSizeFetchedForSettings = false;
+        this.shortcutRecording = null;
+        this.paint();
+      }
     });
     this.els.closeSettings.addEventListener("click", () => {
       this.settingsOpen = false;
@@ -539,32 +591,40 @@ export class App {
     this.els.toggleLibrary.addEventListener("click", () => this.toggleExplorerCollapsed());
     this.els.clearLibrary.addEventListener("click", (e) => {
       e.stopPropagation();
+      this.dismissExplorerPopovers({ clearConfirm: true });
       this.clearConfirmOpen = !this.clearConfirmOpen;
       this.paint();
     });
     this.els.clearConfirmCancel.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.clearConfirmOpen = false;
-      this.paint();
+      this.dismissExplorerPopovers();
     });
     this.els.clearConfirmOk.addEventListener("click", (e) => {
       e.stopPropagation();
       this.performClearLibrary();
     });
     document.addEventListener("click", () => {
-      this.libraryMenu.hide();
       if (this.clearConfirmOpen) {
-        this.clearConfirmOpen = false;
-        this.paint();
+        this.dismissExplorerPopovers();
         return;
       }
+      this.libraryMenu.hide();
       if (this.cacheConfirmOpen) {
         this.cacheConfirmOpen = false;
         this.paintCacheSection();
       }
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") this.libraryMenu.hide();
+      if (e.key !== "Escape") return;
+      if (this.clearConfirmOpen) {
+        this.dismissExplorerPopovers();
+        return;
+      }
+      this.libraryMenu.hide();
+      if (this.cacheConfirmOpen && this.settingsOpen) {
+        this.cacheConfirmOpen = false;
+        this.paintCacheSection();
+      }
     });
     this.els.clearConfirmPop.addEventListener("click", (e) => e.stopPropagation());
     this.els.collapseExplorer.addEventListener("click", () => this.toggleExplorerCollapsed());
@@ -576,15 +636,18 @@ export class App {
       if (!this.els.sidebarBody.contains(target)) return;
       e.preventDefault();
 
-      const folderDir = resolveLibraryMenuFolder(target);
+      this.dismissExplorerPopovers();
+
+      const menuCtx = resolveLibraryMenuContext(target);
       const canRefreshLibrary = this.libraryRoots.length > 0;
-      if (!folderDir && !canRefreshLibrary) return;
+      if (!menuCtx.folderDir && !menuCtx.revealPath && !canRefreshLibrary) return;
 
       this.libraryMenu.show({
         ui: this.ui,
         x: e.clientX,
         y: e.clientY,
-        folderDir,
+        folderDir: menuCtx.folderDir,
+        revealPath: menuCtx.revealPath,
         canRefreshLibrary,
       });
     });
@@ -593,28 +656,14 @@ export class App {
     });
 
     this.els.sidebarBody.addEventListener("click", (e) => {
+      this.dismissExplorerPopovers();
+
       const target = e.target as HTMLElement;
 
       const toggleFolder = target.closest<HTMLElement>("[data-action=toggle-folder]");
       if (toggleFolder?.dataset.folderKey) {
         e.preventDefault();
         this.toggleFolderCollapsed(toggleFolder.dataset.folderKey);
-        return;
-      }
-
-      const revealFolder = target.closest<HTMLElement>("[data-action=reveal-folder]");
-      if (revealFolder?.dataset.folderKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        void revealModelInFolder(revealFolder.dataset.folderKey);
-        return;
-      }
-
-      const revealModel = target.closest<HTMLElement>("[data-action=reveal-model]");
-      if (revealModel?.dataset.modelPath) {
-        e.preventDefault();
-        e.stopPropagation();
-        void revealModelInFolder(revealModel.dataset.modelPath);
         return;
       }
 
@@ -909,8 +958,7 @@ export class App {
         return;
       }
       if (this.clearConfirmOpen) {
-        this.clearConfirmOpen = false;
-        this.paint();
+        this.dismissExplorerPopovers();
         return;
       }
       if (this.cacheConfirmOpen) {
@@ -937,8 +985,7 @@ export class App {
         void this.pickFolder();
         return true;
       case "settings":
-        this.settingsOpen = true;
-        this.paint();
+        this.openSettings();
         return true;
       case "zoom_in":
         if (this.phase !== "ready") return false;
@@ -1099,7 +1146,151 @@ export class App {
     }
   }
 
+  private positionCacheClearConfirm(): void {
+    const pop = this.els.cacheClearConfirm;
+    const btn = this.els.clearCacheBtn;
+    const pad = 8;
+    const gap = 6;
+
+    const apply = (): void => {
+      pop.style.visibility = "hidden";
+      pop.classList.remove("hidden");
+
+      const btnRect = btn.getBoundingClientRect();
+      const panelRect = this.els.settingsPanel.getBoundingClientRect();
+      const popRect = pop.getBoundingClientRect();
+      const width = popRect.width || 184;
+      const height = popRect.height || 72;
+
+      let top = btnRect.bottom + gap;
+      if (top + height > window.innerHeight - pad) {
+        top = Math.max(pad, btnRect.top - height - gap);
+      }
+
+      let left = btnRect.left + (btnRect.width - width) / 2;
+      const minLeft = Math.max(pad, panelRect.left + pad);
+      const maxLeft = Math.min(window.innerWidth - width - pad, panelRect.right - width - pad);
+      left = Math.max(minLeft, Math.min(left, maxLeft));
+
+      pop.style.top = `${top}px`;
+      pop.style.left = `${left}px`;
+      pop.style.visibility = "";
+    };
+
+    apply();
+  }
+
+  /** Close library context menu and optional clear-library confirm. */
+  private dismissExplorerPopovers(keep?: { clearConfirm?: boolean }): void {
+    this.libraryMenu.hide();
+    if (keep?.clearConfirm || !this.clearConfirmOpen) return;
+    this.clearConfirmOpen = false;
+    this.syncLibraryClearPop();
+    this.els.clearLibrary.classList.remove("is-active");
+  }
+
+  private openSettings(): void {
+    this.dismissExplorerPopovers();
+    this.settingsOpen = true;
+    this.paint();
+  }
+
+  private syncFadePop(opts: {
+    open: boolean;
+    pop: HTMLElement;
+    isShown: () => boolean;
+    markShown: (value: boolean) => void;
+    timer: () => ReturnType<typeof setTimeout> | null;
+    setTimer: (value: ReturnType<typeof setTimeout> | null) => void;
+    prepareOpen?: () => void;
+    resetClosed?: () => void;
+  }): void {
+    const { open, pop, isShown, markShown, timer, setTimer, prepareOpen, resetClosed } = opts;
+
+    if (open) {
+      const pending = timer();
+      if (pending) {
+        clearTimeout(pending);
+        setTimer(null);
+      }
+
+      const wasVisible = isShown() && pop.classList.contains("is-visible");
+      markShown(true);
+      pop.classList.remove("hidden");
+      prepareOpen?.();
+      if (wasVisible) return;
+
+      requestAnimationFrame(() => {
+        pop.classList.add("is-visible");
+      });
+      return;
+    }
+
+    if (!isShown() || timer()) return;
+
+    pop.classList.remove("is-visible");
+    setTimer(
+      setTimeout(() => {
+        pop.classList.add("hidden");
+        resetClosed?.();
+        markShown(false);
+        setTimer(null);
+      }, App.POP_MOTION_MS),
+    );
+  }
+
+  private syncLibraryClearPop(): void {
+    this.syncFadePop({
+      open: this.clearConfirmOpen,
+      pop: this.els.clearConfirmPop,
+      isShown: () => this.libraryClearPopShown,
+      markShown: (value) => {
+        this.libraryClearPopShown = value;
+      },
+      timer: () => this.libraryClearPopTimer,
+      setTimer: (value) => {
+        this.libraryClearPopTimer = value;
+      },
+      prepareOpen: () => {
+        this.els.clearConfirmMessage.textContent = this.ui.clear_library_confirm;
+        this.els.clearConfirmCancel.textContent = this.ui.cancel;
+        this.els.clearConfirmOk.textContent = this.ui.clear_library;
+      },
+    });
+  }
+
+  private syncCacheClearPop(): void {
+    this.syncFadePop({
+      open: this.cacheConfirmOpen && this.settingsOpen,
+      pop: this.els.cacheClearConfirm,
+      isShown: () => this.cacheClearPopShown,
+      markShown: (value) => {
+        this.cacheClearPopShown = value;
+      },
+      timer: () => this.cacheClearPopTimer,
+      setTimer: (value) => {
+        this.cacheClearPopTimer = value;
+      },
+      prepareOpen: () => {
+        this.els.cacheClearConfirmMessage.textContent = this.ui.clear_cache_confirm;
+        this.els.cacheClearConfirmCancel.textContent = this.ui.cancel;
+        this.els.cacheClearConfirmOk.textContent = this.ui.clear_cache;
+        this.positionCacheClearConfirm();
+      },
+      resetClosed: () => {
+        this.els.cacheClearConfirm.style.top = "";
+        this.els.cacheClearConfirm.style.left = "";
+        this.els.cacheClearConfirm.style.visibility = "";
+      },
+    });
+  }
+
   private paintCacheSection(force = false): void {
+    this.syncCacheClearPop();
+    const popOpen = this.cacheConfirmOpen && this.settingsOpen;
+    this.els.clearCacheBtn.classList.toggle("is-active", popOpen);
+    this.els.clearCacheBtn.setAttribute("aria-expanded", popOpen ? "true" : "false");
+
     if (!force && !this.settingsOpen) return;
     const bytes = this.viewerCacheBytes;
     const sizeEl = this.els.cacheSize;
@@ -1110,17 +1301,8 @@ export class App {
 
     const btn = this.els.clearCacheBtn as HTMLButtonElement;
     const empty = bytes === 0;
-    btn.disabled = empty || this.cacheClearing || bytes === null || this.cacheConfirmOpen;
+    btn.disabled = empty || this.cacheClearing || bytes === null;
     btn.classList.toggle("is-loading", this.cacheClearing);
-    btn.classList.toggle("hidden", this.cacheConfirmOpen);
-    btn.setAttribute("aria-expanded", this.cacheConfirmOpen ? "true" : "false");
-
-    this.els.cacheClearConfirm.classList.toggle("hidden", !this.cacheConfirmOpen);
-    if (this.cacheConfirmOpen) {
-      this.els.cacheClearConfirmMessage.textContent = this.ui.clear_cache_confirm;
-      this.els.cacheClearConfirmCancel.textContent = this.ui.cancel;
-      this.els.cacheClearConfirmOk.textContent = this.ui.clear_cache;
-    }
   }
 
   private async refreshViewerCacheSize(): Promise<void> {
@@ -1372,7 +1554,7 @@ export class App {
 
   private toggleExplorerCollapsed(): void {
     if (this.cinemaMode || this.models.length === 0) return;
-    this.clearConfirmOpen = false;
+    this.dismissExplorerPopovers();
     this.explorerCollapsed = !this.explorerCollapsed;
     this.paint();
   }
@@ -1425,6 +1607,7 @@ export class App {
 
   private async pickFile(): Promise<void> {
     if (this.dialogOpen) return;
+    this.dismissExplorerPopovers();
     this.dialogOpen = true;
     try {
       const path = await openModelDialog();
@@ -1436,6 +1619,7 @@ export class App {
 
   private async pickFolder(): Promise<void> {
     if (this.dialogOpen) return;
+    this.dismissExplorerPopovers();
     this.dialogOpen = true;
     try {
       const dir = await openFolderDialog();
@@ -2166,14 +2350,11 @@ export class App {
       this.paintSceneSettings();
       this.paintUpdateSettings();
       this.paintCacheSection();
+    } else {
+      this.paintCacheSection(true);
     }
-    this.els.clearConfirmPop.classList.toggle("hidden", !this.clearConfirmOpen);
+    this.syncLibraryClearPop();
     this.els.clearLibrary.classList.toggle("is-active", this.clearConfirmOpen);
-    if (this.clearConfirmOpen) {
-      this.els.clearConfirmMessage.textContent = this.ui.clear_library_confirm;
-      this.els.clearConfirmCancel.textContent = this.ui.cancel;
-      this.els.clearConfirmOk.textContent = this.ui.clear_library;
-    }
     this.els.viewportMain.classList.toggle("is-interactive", interactive);
     const modelPreview =
       this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
@@ -2195,7 +2376,7 @@ export class App {
 
     this.els.explorerDrawer.classList.toggle("is-visible", hasLibrary);
     this.els.explorerDrawer.classList.toggle("is-collapsed", this.explorerCollapsed);
-    this.els.explorerDrawer.classList.toggle("is-clear-pop-open", this.clearConfirmOpen);
+    this.els.explorerDrawer.classList.toggle("is-clear-pop-open", this.libraryClearPopShown);
     this.els.inspector.classList.toggle("is-visible", showModelPanels);
     this.els.inspector.classList.toggle("is-collapsed", this.inspectorCollapsed);
 
@@ -2361,11 +2542,11 @@ export class App {
 
   private performClearLibrary(): void {
     if (this.models.length === 0) {
-      this.clearConfirmOpen = false;
+      this.dismissExplorerPopovers();
       this.paint();
       return;
     }
-    this.clearConfirmOpen = false;
+    this.dismissExplorerPopovers();
     this.models = [];
     this.summaryCache.clear();
     this.cameraByPath.clear();
@@ -2652,7 +2833,12 @@ const SHELL_HTML = `
           <button type="button" class="panel-toggle" data-action="clear-library" aria-label="">
             <span class="material-symbols-outlined">playlist_remove</span>
           </button>
-          <div class="library-clear-pop glass-capsule hidden" data-bind="clear-confirm" role="alertdialog" aria-modal="true">
+          <div
+            class="library-clear-pop glass-capsule hidden"
+            data-bind="clear-confirm"
+            role="alertdialog"
+            aria-modal="true"
+          >
             <p class="library-clear-pop-text" data-bind="clear-confirm-message"></p>
             <div class="library-clear-pop-actions">
               <button type="button" class="library-clear-pop-btn" data-action="clear-library-cancel"></button>
@@ -2804,7 +2990,7 @@ const SHELL_HTML = `
             <div class="settings-scene-grid" data-bind="update-settings-list"></div>
           </div>
         </div>
-        <div class="settings-section">
+        <div class="settings-section" data-bind="storage-section">
           <label data-bind="storage-label"></label>
           <div class="settings-scene">
             <p class="settings-cache-hint" data-bind="cache-hint"></p>
@@ -2824,17 +3010,6 @@ const SHELL_HTML = `
                   </button>
                 </span>
               </div>
-            </div>
-          </div>
-          <div class="settings-cache-confirm hidden" data-bind="cache-clear-confirm" role="alertdialog" aria-modal="true">
-            <p class="settings-cache-confirm-text" data-bind="cache-clear-confirm-message"></p>
-            <div class="settings-cache-confirm-actions">
-              <button type="button" class="settings-shortcut-reset-all" data-action="clear-cache-cancel">
-                <span class="settings-shortcut-reset-all-label"></span>
-              </button>
-              <button type="button" class="settings-shortcut-reset-all settings-cache-confirm-ok" data-action="clear-cache-confirm">
-                <span class="settings-shortcut-reset-all-label"></span>
-              </button>
             </div>
           </div>
         </div>
@@ -2889,6 +3064,19 @@ const SHELL_HTML = `
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div
+    class="confirm-pop-shell library-clear-pop glass-capsule settings-cache-clear-pop hidden"
+    data-bind="cache-clear-confirm"
+    role="alertdialog"
+    aria-modal="true"
+  >
+    <p class="library-clear-pop-text" data-bind="cache-clear-confirm-message"></p>
+    <div class="library-clear-pop-actions">
+      <button type="button" class="library-clear-pop-btn" data-action="clear-cache-cancel"></button>
+      <button type="button" class="library-clear-pop-btn library-clear-pop-btn-primary" data-action="clear-cache-confirm"></button>
     </div>
   </div>
 `;

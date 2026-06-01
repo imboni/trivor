@@ -1,14 +1,16 @@
+import type { LibraryMenuContext } from "./library-path";
 import type { UiBundle } from "./types";
 
-export type LibraryMenuAction = "refresh-folder" | "refresh-library";
+export type LibraryMenuAction = "show-in-folder" | "refresh-folder" | "refresh-library";
 
-export type LibraryMenuShowOptions = {
+export type LibraryMenuShowOptions = LibraryMenuContext & {
   ui: UiBundle;
   x: number;
   y: number;
-  folderDir: string | null;
   canRefreshLibrary: boolean;
 };
+
+const MENU_MOTION_MS = 200;
 
 function escapeHtml(text: string): string {
   return text
@@ -33,8 +35,10 @@ function menuItem(action: LibraryMenuAction, icon: string, label: string): strin
 
 export class LibraryContextMenu {
   private readonly el: HTMLElement;
-  private folderDir: string | null = null;
-  private onSelect: ((action: LibraryMenuAction, folderDir: string | null) => void) | null = null;
+  private context: LibraryMenuContext = { folderDir: null, revealPath: null };
+  private onSelect: ((action: LibraryMenuAction, ctx: LibraryMenuContext) => void) | null = null;
+  private menuVisible = false;
+  private hideTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(container: HTMLElement) {
     this.el = document.createElement("div");
@@ -48,21 +52,33 @@ export class LibraryContextMenu {
       e.preventDefault();
       e.stopPropagation();
       const action = btn.dataset.libraryMenuAction as LibraryMenuAction;
-      const folderDir = this.folderDir;
+      const ctx = this.context;
       this.hide();
-      this.onSelect?.(action, folderDir);
+      this.onSelect?.(action, ctx);
     });
 
     this.el.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  setHandler(handler: (action: LibraryMenuAction, folderDir: string | null) => void): void {
+  setHandler(handler: (action: LibraryMenuAction, ctx: LibraryMenuContext) => void): void {
     this.onSelect = handler;
   }
 
   show(opts: LibraryMenuShowOptions): void {
-    this.folderDir = opts.folderDir;
+    if (this.hideTimer) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
+
+    this.context = {
+      folderDir: opts.folderDir,
+      revealPath: opts.revealPath,
+    };
     const items: string[] = [];
+
+    if (opts.revealPath) {
+      items.push(menuItem("show-in-folder", "folder_open", opts.ui.show_in_folder));
+    }
 
     if (opts.folderDir) {
       items.push(menuItem("refresh-folder", "sync", opts.ui.refresh_folder));
@@ -74,6 +90,8 @@ export class LibraryContextMenu {
 
     if (items.length === 0) return;
 
+    const wasVisible = this.menuVisible && this.el.classList.contains("is-visible");
+    this.menuVisible = true;
     this.el.innerHTML = items.join("");
     this.el.classList.remove("hidden");
 
@@ -92,12 +110,24 @@ export class LibraryContextMenu {
     }
     this.el.style.left = `${left}px`;
     this.el.style.top = `${top}px`;
+
+    if (wasVisible) return;
+
+    requestAnimationFrame(() => {
+      this.el.classList.add("is-visible");
+    });
   }
 
   hide(): void {
-    if (this.el.classList.contains("hidden")) return;
-    this.el.classList.add("hidden");
-    this.el.innerHTML = "";
-    this.folderDir = null;
+    if (!this.menuVisible || this.hideTimer) return;
+
+    this.el.classList.remove("is-visible");
+    this.hideTimer = setTimeout(() => {
+      this.el.classList.add("hidden");
+      this.el.innerHTML = "";
+      this.context = { folderDir: null, revealPath: null };
+      this.menuVisible = false;
+      this.hideTimer = null;
+    }, MENU_MOTION_MS);
   }
 }

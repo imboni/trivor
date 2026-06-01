@@ -212,18 +212,6 @@ function renderFolder(
           <span class="lib-folder-name">${escapeHtml(folder.name)}</span>
           <span class="lib-folder-count">${count}</span>
         </button>
-        <div class="lib-folder-actions">
-          <button
-            type="button"
-            class="lib-folder-locate"
-            data-action="reveal-folder"
-            data-folder-key="${escapeAttr(folder.key)}"
-            title="${escapeAttr(opts.ui.show_in_folder)}"
-            aria-label="${escapeAttr(opts.ui.show_in_folder)}"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
-          </button>
-        </div>
       </div>
       <div class="lib-folder-children">
         <div class="lib-folder-children-inner">
@@ -252,16 +240,6 @@ function renderModelRow(node: LibraryModelNode, depth: number, opts: LibraryTree
         </span>
       </button>
       <div class="model-row-actions">
-        <button
-          type="button"
-          class="model-row-locate"
-          data-action="reveal-model"
-          data-model-path="${escapeAttr(m.path)}"
-          title="${escapeAttr(opts.ui.show_in_folder)}"
-          aria-label="${escapeAttr(opts.ui.show_in_folder)}"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
-        </button>
         <button
           type="button"
           class="model-row-remove"

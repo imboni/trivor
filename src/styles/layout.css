@@ -450,7 +450,7 @@ html.is-macos-overlay-titlebar .titlebar-drag {
   position: relative;
 }
 
-.library-clear-pop {
+.explorer-clear-anchor .library-clear-pop {
   position: absolute;
   top: calc(100% + 6px);
   left: 50%;
@@ -458,12 +458,9 @@ html.is-macos-overlay-titlebar .titlebar-drag {
   width: max(11.5rem, 184px);
   padding: 10px 10px 8px;
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--glass-shadow);
+  isolation: isolate;
   translate: -50% 0;
-}
-
-.library-clear-pop.hidden {
-  display: none;
 }
 
 .library-clear-pop-text {
