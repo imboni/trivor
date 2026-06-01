@@ -2,6 +2,7 @@
 /dist/
 /target/
 **/target/
+.venv-fonttools/
 .DS_Store
 *.app
 *.dmg

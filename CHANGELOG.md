@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Smaller macOS app bundle: `latin`/`latin-ext` font subsets, woff2-only web assets, Rust release `strip` + LTO (~24 MB → ~18 MB `.app`) — 缩小安装包：字体 subset、仅 woff2、Release 链接优化
+- Library row actions moved into the context menu; unified fade popovers for clear-list / clear-cache confirm — 侧栏操作收入右键菜单；清空列表/清除缓存共用淡入确认层
 - Large-model load failures: clearer bilingual copy, export size/triangle guidance, inspector metadata when available, dismissible error overlay — 大模型加载失败：中英文说明、导出建议、失败时属性面板、可关闭错误层
 - gltfpack / viewer errors localized in the web shell (follows Settings language) — 大模型错误文案改由前端 i18n，随设置语言切换
 - Unified file-size display (GB above 1 GiB) — 文件大小显示统一（≥ 1 GiB 用 GB）
 
 ### Fixed
 
+- Dismiss explorer popovers when opening clear-list menu; shared popover fade helper — 打开清空菜单时关闭其它浮层
 - Invalidate corrupt preview cache entries before re-running gltfpack — 损坏的预览缓存会先删除再重建
 - Suppress raw model-viewer JavaScript errors in the UI — 不再向用户展示 model-viewer 内部 JS 报错
 
