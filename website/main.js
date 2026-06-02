@@ -30,9 +30,9 @@ const copy = {
     faqTitle: "FAQ",
     faqQ1: "How do I install Trivor?",
     faqA1: "Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.",
-    faqQ2: "macOS won't open the app — what should I do?",
+    faqQ2: "macOS says Trivor can't be opened — what should I do?",
     faqA2:
-      "Trivor is not distributed through the App Store. Control-click the app, choose Open, confirm once, and it will open normally afterward.",
+      "Trivor isn't on the App Store yet. Try opening it once, then go to System Settings → Privacy & Security, scroll down, and click Open Anyway for Trivor. It should launch normally from Applications afterward.",
     faqQ3: "Which file formats are supported?",
     faqA3: "glTF and GLB — the standard formats for real-time 3D content.",
     faqQ4: "What are the system requirements?",
@@ -67,8 +67,9 @@ const copy = {
     faqTitle: "常见问题",
     faqQ1: "如何安装 Trivor？",
     faqA1: "下载 .dmg，将 Trivor 拖入「应用程序」，从启动台或访达打开即可。",
-    faqQ2: "提示「无法打开」或「无法验证开发者」？",
-    faqA2: "暂未上架 App Store。按住 Control 点按 Trivor → 打开，确认一次后即可正常使用。",
+    faqQ2: "提示「应用程序 Trivor.app 无法打开」？",
+    faqA2:
+      "暂未上架 App Store。请先尝试打开一次 Trivor（会出现无法打开的提示），然后前往「系统设置 → 隐私与安全性」，在页面下方点击「仍要打开 Trivor」，之后即可从「应用程序」正常启动。",
     faqQ3: "支持哪些格式？",
     faqA3: "glTF 与 GLB，常用的实时 3D 资产格式。",
     faqQ4: "需要什么系统？",
