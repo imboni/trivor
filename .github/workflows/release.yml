@@ -41,6 +41,8 @@ jobs:
         env:
           # Ad-hoc sign (no Apple Developer cert required). Override via repo secret for notarized builds.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+          # Apply branded DMG background/layout on CI (default skips Finder AppleScript when CI=true).
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 
       - name: Locate DMG
