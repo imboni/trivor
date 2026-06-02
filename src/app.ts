@@ -125,6 +125,8 @@ export class App {
   private cacheClearing = false;
   private explorerCollapsed = false;
   private inspectorCollapsed = false;
+  /** After dismissing a load error overlay, keep the inspector hidden until the next model open. */
+  private inspectorHiddenAfterError = false;
   private viewportInsetsRaf = 0;
   private cinemaMode = false;
   private cinemaRotatePaused = false;
@@ -594,6 +596,7 @@ export class App {
     this.els.expandInspector.addEventListener("click", () => {
       if (this.inspectorCollapsed) {
         this.inspectorCollapsed = false;
+        this.inspectorHiddenAfterError = false;
         this.paint();
       }
     });
@@ -1410,7 +1413,10 @@ export class App {
       showInspector: showModelPanels,
       inspectorCollapsed: this.inspectorCollapsed,
       showInspectorTab:
-        showModelPanels && this.inspectorCollapsed && !this.cinemaMode,
+        showModelPanels &&
+        this.inspectorCollapsed &&
+        !this.cinemaMode &&
+        !this.inspectorHiddenAfterError,
       showAxisWidget: this.phase === "ready",
     };
   }
@@ -1438,6 +1444,7 @@ export class App {
 
     window.addEventListener("mousemove", reveal, { passive: true });
     this.els.cinemaControls.addEventListener("mouseenter", reveal);
+    this.els.axisWidget.addEventListener("mouseenter", reveal);
   }
 
   private scheduleCinemaChromeHide(): void {
@@ -1572,6 +1579,7 @@ export class App {
     if (this.cinemaMode) return;
     if (!this.modelPanelsVisible()) return;
     this.inspectorCollapsed = !this.inspectorCollapsed;
+    if (!this.inspectorCollapsed) this.inspectorHiddenAfterError = false;
     this.paint();
   }
 
@@ -1847,6 +1855,8 @@ export class App {
     this.status = "";
     this.activePath = null;
     this.summary = null;
+    this.inspectorCollapsed = true;
+    this.inspectorHiddenAfterError = true;
     this.viewport.clear();
     this.phase = "empty";
     this.paint();
@@ -2263,6 +2273,7 @@ export class App {
     }
 
     const token = ++this.loadToken;
+    this.inspectorHiddenAfterError = false;
     this.activePath = path;
     this.phase = "loading";
     this.loadPercent = 0;
@@ -2439,7 +2450,8 @@ export class App {
     this.els.explorerDrawer.classList.toggle("is-visible", hasLibrary);
     this.els.explorerDrawer.classList.toggle("is-collapsed", this.explorerCollapsed);
     this.els.explorerDrawer.classList.toggle("is-clear-pop-open", this.libraryClearPopShown);
-    this.els.inspector.classList.toggle("is-visible", showModelPanels);
+    const showInspector = showModelPanels && !this.inspectorHiddenAfterError;
+    this.els.inspector.classList.toggle("is-visible", showInspector);
     this.els.inspector.classList.toggle("is-collapsed", this.inspectorCollapsed);
 
     this.els.viewportDock.classList.toggle("is-visible", interactive && !this.cinemaMode);
@@ -2449,7 +2461,10 @@ export class App {
     this.els.toolPreviewGrid.classList.toggle("is-active", sceneOpts.previewGrid);
     this.els.toolSceneGuides.classList.toggle("is-active", sceneOpts.showGuides);
     const showInspectorTab =
-      showModelPanels && this.inspectorCollapsed && !this.cinemaMode;
+      showModelPanels &&
+      this.inspectorCollapsed &&
+      !this.cinemaMode &&
+      !this.inspectorHiddenAfterError;
     this.els.expandInspector.classList.toggle("is-visible", showInspectorTab);
     this.paintPanelToggles();
     if (this.cinemaMode) this.paintCinemaControls();

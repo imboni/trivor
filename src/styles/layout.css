@@ -229,8 +229,11 @@ html.is-macos-overlay-titlebar .titlebar-drag {
   bottom: calc(var(--shell-pad) + var(--cinema-controls-h) + var(--chrome-gap));
 }
 
-.shell.is-cinema.is-cinema-chrome-idle .axis-widget {
-  bottom: var(--shell-pad);
+.shell.is-cinema.is-cinema-chrome-idle .axis-widget.is-visible {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  translate: 0 10px;
 }
 
 .axis-widget-svg {
@@ -753,6 +756,13 @@ html.is-cinema-cursor-hidden model-viewer {
     opacity: 0.35;
     visibility: visible;
     pointer-events: auto;
+    translate: 0 0;
+  }
+
+  .shell.is-cinema.is-cinema-chrome-idle .axis-widget.is-visible {
+    opacity: 0.35;
+    visibility: visible;
+    pointer-events: none;
     translate: 0 0;
   }
 
