@@ -107,3 +107,13 @@ export function onUpdateDownloadProgress(
 export function openExternalUrl(url: string): Promise<void> {
   return openUrl(url);
 }
+
+export function saveCutoutDialog(
+  defaultFilename: string,
+  pngBytes: Uint8Array,
+): Promise<string | null> {
+  return invoke("save_cutout_dialog", {
+    defaultFilename,
+    pngBytes: Array.from(pngBytes),
+  });
+}

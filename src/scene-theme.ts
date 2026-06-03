@@ -24,6 +24,7 @@ export type SceneTheme = {
 
 let cached: SceneTheme | null = null;
 let cachedTheme = "";
+let themeEpoch = 0;
 
 export function readSceneTheme(): SceneTheme {
   const theme = document.documentElement.dataset.theme ?? "dark";
@@ -58,6 +59,11 @@ export function readSceneTheme(): SceneTheme {
 export function invalidateSceneThemeCache(): void {
   cached = null;
   cachedTheme = "";
+  themeEpoch += 1;
+}
+
+export function sceneThemeEpoch(): number {
+  return themeEpoch;
 }
 
 function cssString(style: CSSStyleDeclaration, name: string, fallback: string): string {

@@ -1,5 +1,5 @@
-import { $scene } from "@google/model-viewer/lib/model-viewer-base.js";
 import type { ModelScene } from "@google/model-viewer/lib/three-components/ModelScene.js";
+import { getModelScene as readModelScene } from "./model-scene-access";
 import {
   Box3,
   ConeGeometry,
@@ -17,9 +17,12 @@ import {
   Vector3,
 } from "three";
 
-import { readSceneTheme } from "./scene-theme";
+import { readSceneTheme, sceneThemeEpoch } from "./scene-theme";
 
-const GUIDE_GROUP_NAME = "trivor-scene-guides";
+export const SCENE_GUIDE_GROUP_NAME = "trivor-scene-guides";
+/** Separate layer so offscreen export can omit guides without hiding them. */
+export const SCENE_GUIDE_RENDER_LAYER = 1;
+const GUIDE_GROUP_NAME = SCENE_GUIDE_GROUP_NAME;
 
 type GuideModelViewer = {
   loaded: boolean;
@@ -32,13 +35,45 @@ export type SceneGuideSyncOptions = {
   showGuides: boolean;
 };
 
-export function syncSceneGuides(mv: GuideModelViewer, opts: SceneGuideSyncOptions): void {
-  const modelScene = getModelScene(mv);
+const GRID_OBJECT_NAME = "trivor-model-grid";
+const GUIDES_CORE_NAME = "trivor-scene-guides-core";
+
+let appliedThemeEpoch = -1;
+let appliedOpts: SceneGuideSyncOptions | null = null;
+
+/** Call when the loaded model changes so guides are rebuilt for the new bounds. */
+export function resetSceneGuideSyncCache(): void {
+  appliedThemeEpoch = -1;
+  appliedOpts = null;
+}
+
+export function syncSceneGuides(
+  mv: GuideModelViewer,
+  opts: SceneGuideSyncOptions,
+  force = false,
+): void {
+  const modelScene = readModelScene(mv);
   if (!modelScene) return;
+
+  const wantsGuides = (opts.previewGrid || opts.showGuides) && mv.loaded;
+  const existing = modelScene.target.getObjectByName(GUIDE_GROUP_NAME);
+  const themeEpoch = sceneThemeEpoch();
+
+  if (
+    !force &&
+    appliedThemeEpoch === themeEpoch &&
+    appliedOpts?.previewGrid === opts.previewGrid &&
+    appliedOpts?.showGuides === opts.showGuides &&
+    guidesMatchExisting(existing, opts, wantsGuides)
+  ) {
+    return;
+  }
 
   removeGuides(modelScene);
 
-  if ((!opts.previewGrid && !opts.showGuides) || !mv.loaded) {
+  if (!wantsGuides) {
+    appliedThemeEpoch = themeEpoch;
+    appliedOpts = { ...opts };
     requestRender(modelScene);
     return;
   }
@@ -50,6 +85,7 @@ export function syncSceneGuides(mv: GuideModelViewer, opts: SceneGuideSyncOption
 
   const root = new Group();
   root.name = GUIDE_GROUP_NAME;
+  root.renderOrder = 10;
 
   if (opts.previewGrid) {
     root.add(createModelGrid(bbox, span, readSceneTheme()));
@@ -58,15 +94,38 @@ export function syncSceneGuides(mv: GuideModelViewer, opts: SceneGuideSyncOption
   if (opts.showGuides) {
     const theme = readSceneTheme();
     const guides = new Group();
-    guides.name = "trivor-scene-guides-core";
+    guides.name = GUIDES_CORE_NAME;
     guides.position.copy(center);
     guides.add(createAxisGizmo(span * 0.36, theme));
     guides.add(createOriginGizmo(span, theme));
     root.add(guides);
   }
 
+  assignSceneGuideLayers(root);
+  modelScene.getCamera().layers.enable(SCENE_GUIDE_RENDER_LAYER);
   modelScene.target.add(root);
+  appliedThemeEpoch = themeEpoch;
+  appliedOpts = { ...opts };
   requestRender(modelScene);
+}
+
+function assignSceneGuideLayers(root: Group): void {
+  root.traverse((obj) => {
+    obj.layers.disableAll();
+    obj.layers.enable(SCENE_GUIDE_RENDER_LAYER);
+  });
+}
+
+function guidesMatchExisting(
+  existing: Object3D | undefined,
+  opts: SceneGuideSyncOptions,
+  wantsGuides: boolean,
+): boolean {
+  if (!wantsGuides) return existing == null;
+  if (!existing) return false;
+  const hasGrid = existing.getObjectByName(GRID_OBJECT_NAME) != null;
+  const hasCore = existing.getObjectByName(GUIDES_CORE_NAME) != null;
+  return hasGrid === opts.previewGrid && hasCore === opts.showGuides;
 }
 
 function readBounds(modelScene: ModelScene, mv: GuideModelViewer): Box3 {
@@ -84,7 +143,7 @@ function readBounds(modelScene: ModelScene, mv: GuideModelViewer): Box3 {
 
 function createModelGrid(bbox: Box3, span: number, theme: ReturnType<typeof readSceneTheme>): Group {
   const group = new Group();
-  group.name = "trivor-model-grid";
+  group.name = GRID_OBJECT_NAME;
 
   const floorY = bbox.min.y - span * 0.002;
   const center = bbox.getCenter(new Vector3());
@@ -155,12 +214,13 @@ function createModelGrid(bbox: Box3, span: number, theme: ReturnType<typeof read
     `,
     transparent: true,
     depthWrite: false,
-    depthTest: true,
+    depthTest: false,
     toneMapped: false,
     side: DoubleSide,
   });
 
   const plane = new Mesh(new PlaneGeometry(planeSize, planeSize, 1, 1), material);
+  plane.renderOrder = 12;
   plane.rotation.x = -Math.PI / 2;
   group.add(plane);
   group.position.set(center.x, floorY, center.z);
@@ -299,11 +359,6 @@ function setOverlayRenderOrder(root: Object3D, order: number): void {
 
 function requestRender(modelScene: ModelScene): void {
   modelScene.queueRender();
-}
-
-function getModelScene(mv: GuideModelViewer): ModelScene | null {
-  const internal = mv as unknown as Record<symbol, ModelScene | undefined>;
-  return internal[$scene] ?? null;
 }
 
 function removeGuides(modelScene: ModelScene): void {

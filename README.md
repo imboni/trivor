@@ -26,6 +26,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Library** | Open a file or folder; format badges; reveal in Finder |
 | **Inspector** | Vertex / triangle / mesh / material counts; bounding dimensions; material swatches |
 | **Scene aids** | Optional grid floor; model center and axis guides (off by default) |
+| **Cutout export** | Export a transparent-background PNG from the current view; preview, pan/zoom, then save via the native dialog |
 | **System integration** | Native menu bar; Finder “Open with”; configurable keyboard shortcuts |
 | **Preferences** | Dark, light, or system appearance; English and Simplified Chinese UI |
 
@@ -74,7 +75,7 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 | Scroll / pinch | Zoom |
 | **Fit** (`⌘0`, `F`, or double-click) | Frame the model in the **visible area** (between panels and dock) |
 | **Reset** (`⌘R` or `R`) | Return to the **initial camera** when the model was opened |
-| Bottom dock | **Scene** (grid, axes) · **Cinema** · **Camera** (fit, zoom, reset) |
+| Bottom dock | **Scene** (grid, axes, cutout) · **Cinema** · **Camera** (fit, zoom, reset) |
 
 On macOS, the window uses a transparent overlay title bar: drag the top strip to move the window, double-click it to zoom. After changing `tauri.conf.json` title bar settings, fully quit and restart `npm run tauri dev`.
 

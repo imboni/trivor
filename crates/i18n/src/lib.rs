@@ -47,6 +47,8 @@ impl I18n {
             // Shell
             (Locale::ZhHans, MessageKey::FileDialogFilter) => "glTF / GLB",
             (_, MessageKey::FileDialogFilter) => "glTF / GLB",
+            (Locale::ZhHans, MessageKey::PngDialogFilter) => "PNG 图像",
+            (_, MessageKey::PngDialogFilter) => "PNG Image",
             (Locale::ZhHans, MessageKey::OpenFile) => "打开…",
             (_, MessageKey::OpenFile) => "Open…",
             (Locale::ZhHans, MessageKey::OpenFolder) => "文件夹…",
@@ -367,6 +369,24 @@ impl I18n {
             (_, MessageKey::ToolPreviewGrid) => "Show grid floor",
             (Locale::ZhHans, MessageKey::ToolSceneGuides) => "显示中心与坐标轴",
             (_, MessageKey::ToolSceneGuides) => "Show center and axes",
+            (Locale::ZhHans, MessageKey::ToolExportCutout) => "抠图",
+            (_, MessageKey::ToolExportCutout) => "Cutout",
+            (Locale::ZhHans, MessageKey::CutoutCreate) => "一键抠图",
+            (_, MessageKey::CutoutCreate) => "Create cutout",
+            (Locale::ZhHans, MessageKey::CutoutExporting) => "正在导出抠图…",
+            (_, MessageKey::CutoutExporting) => "Exporting cutout…",
+            (Locale::ZhHans, MessageKey::CutoutSaved) => "已保存至 {path}",
+            (_, MessageKey::CutoutSaved) => "Saved to {path}",
+            (Locale::ZhHans, MessageKey::CutoutFailed) => "无法导出抠图，请稍后再试。",
+            (_, MessageKey::CutoutFailed) => "Couldn't export cutout. Try again later.",
+            (Locale::ZhHans, MessageKey::CutoutNoModel) => "请先打开一个模型。",
+            (_, MessageKey::CutoutNoModel) => "Open a model first.",
+            (Locale::ZhHans, MessageKey::CutoutEmpty) => "当前视角下没有可导出的模型轮廓。",
+            (_, MessageKey::CutoutEmpty) => "No model outline visible from this angle.",
+            (Locale::ZhHans, MessageKey::CutoutPreviewTitle) => "预览",
+            (_, MessageKey::CutoutPreviewTitle) => "Preview",
+            (Locale::ZhHans, MessageKey::CutoutSaveTitle) => "保存",
+            (_, MessageKey::CutoutSaveTitle) => "Save",
         }
     }
 }
@@ -393,6 +413,7 @@ pub enum MessageKey {
     AppTagline,
     AboutDescription,
     FileDialogFilter,
+    PngDialogFilter,
     OpenFile,
     OpenFolder,
     MenuFile,
@@ -521,6 +542,15 @@ pub enum MessageKey {
     SceneGuides,
     ToolPreviewGrid,
     ToolSceneGuides,
+    ToolExportCutout,
+    CutoutCreate,
+    CutoutExporting,
+    CutoutSaved,
+    CutoutFailed,
+    CutoutNoModel,
+    CutoutEmpty,
+    CutoutPreviewTitle,
+    CutoutSaveTitle,
 }
 
 /// Serializable UI copy for the web shell.
@@ -661,6 +691,15 @@ pub struct UiBundle {
     pub scene_guides: String,
     pub tool_preview_grid: String,
     pub tool_scene_guides: String,
+    pub tool_export_cutout: String,
+    pub cutout_create: String,
+    pub cutout_exporting: String,
+    pub cutout_saved: String,
+    pub cutout_failed: String,
+    pub cutout_no_model: String,
+    pub cutout_empty: String,
+    pub cutout_preview_title: String,
+    pub cutout_save_title: String,
 }
 
 impl UiBundle {
@@ -821,6 +860,15 @@ impl UiBundle {
             scene_guides: t(MessageKey::SceneGuides),
             tool_preview_grid: t(MessageKey::ToolPreviewGrid),
             tool_scene_guides: t(MessageKey::ToolSceneGuides),
+            tool_export_cutout: t(MessageKey::ToolExportCutout),
+            cutout_create: t(MessageKey::CutoutCreate),
+            cutout_exporting: t(MessageKey::CutoutExporting),
+            cutout_saved: t(MessageKey::CutoutSaved),
+            cutout_failed: t(MessageKey::CutoutFailed),
+            cutout_no_model: t(MessageKey::CutoutNoModel),
+            cutout_empty: t(MessageKey::CutoutEmpty),
+            cutout_preview_title: t(MessageKey::CutoutPreviewTitle),
+            cutout_save_title: t(MessageKey::CutoutSaveTitle),
         }
     }
 

@@ -48,6 +48,7 @@ pub fn run() {
             commands::clear_viewer_cache_cmd,
             commands::open_model_dialog,
             commands::open_folder_dialog,
+            commands::save_cutout_dialog,
             commands::scan_models_folder,
             commands::resolve_viewer_model_path,
             commands::load_model,

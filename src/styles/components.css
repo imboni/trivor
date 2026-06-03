@@ -941,6 +941,22 @@
 
 .dock-btn .material-symbols-outlined {
   font-size: 22px;
+  line-height: 1;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+.dock-icon-cutout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.dock-icon-cutout .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20;
 }
 
 .dock-icon-axes {
@@ -2078,4 +2094,242 @@
   background: var(--bg-raised);
   border-color: var(--border-accent);
   box-shadow: var(--shadow-sm);
+}
+
+/* Cutout preview */
+
+.cutout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  padding: 24px;
+  background: var(--backdrop);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  opacity: 1;
+  transition: opacity var(--motion) var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.cutout-backdrop.hidden {
+  display: none;
+}
+
+.cutout-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: min(calc(100vw - 48px), 720px);
+  height: min(calc(100vh - 48px), 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  -webkit-app-region: no-drag;
+}
+
+.cutout-panel.hidden {
+  display: none;
+}
+
+.cutout-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.cutout-panel-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.cutout-panel-drag-handle:active {
+  cursor: grabbing;
+}
+
+.cutout-panel-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.cutout-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  transition:
+    background var(--motion-fast) var(--ease),
+    color var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease);
+}
+
+.cutout-panel-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.cutout-preview-body {
+  padding: 16px 20px 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.cutout-preview-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 200px;
+  padding: 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  touch-action: none;
+  background-color: var(--cutout-checker-base);
+  background-image:
+    linear-gradient(45deg, var(--cutout-checker-light) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--cutout-checker-light) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--cutout-checker-light) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--cutout-checker-light) 75%);
+  background-size: 18px 18px;
+  background-position:
+    0 0,
+    0 9px,
+    9px -9px,
+    -9px 0;
+}
+
+.cutout-preview-stage.is-zoomed {
+  cursor: grab;
+}
+
+.cutout-preview-stage.is-panning,
+.cutout-preview-stage.is-interacting {
+  cursor: grabbing;
+}
+
+.cutout-preview-viewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+}
+
+.cutout-preview-viewport.is-interacting {
+  will-change: transform;
+}
+
+.cutout-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 24px color-mix(in srgb, var(--text) 22%, transparent));
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cutout-preview-meta {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  pointer-events: none;
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+}
+
+.cutout-preview-reset {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  color: var(--text-muted);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  transition:
+    background var(--motion-fast) var(--ease),
+    color var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease);
+}
+
+.cutout-preview-reset .material-symbols-outlined {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cutout-preview-reset:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.cutout-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.cutout-preview-resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 0 0 var(--radius-sm) 0;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.55;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0 44%,
+      color-mix(in srgb, var(--text-muted) 72%, transparent) 44% 48%,
+      transparent 48% 58%,
+      color-mix(in srgb, var(--text-muted) 72%, transparent) 58% 62%,
+      transparent 62% 100%
+    );
+  transition: opacity var(--motion-fast) var(--ease);
+}
+
+.cutout-preview-resize-handle:hover {
+  opacity: 0.9;
 }

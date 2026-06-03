@@ -1,6 +1,11 @@
 import "@google/model-viewer";
 
-import { syncSceneGuides as applySceneGuidesToModel, type SceneGuideSyncOptions } from "./scene-guides";
+import { exportCutoutPng } from "./cutout-export";
+import {
+  resetSceneGuideSyncCache,
+  syncSceneGuides as applySceneGuidesToModel,
+  type SceneGuideSyncOptions,
+} from "./scene-guides";
 import { adjustCameraForViewportInsets, type ViewportInsets } from "./viewport-framing";
 
 interface SphericalPosition {
@@ -282,9 +287,13 @@ export class ModelViewport {
     applyScenePresentation(this.mv, enabled);
   }
 
+  isPresentationMode(): boolean {
+    return this.presentationMode;
+  }
+
   /** Optional grid floor, center marker, and XYZ axes in model space. */
-  syncSceneGuides(opts: SceneGuideSyncOptions): void {
-    applySceneGuidesToModel(this.mv, opts);
+  syncSceneGuides(opts: SceneGuideSyncOptions, force = false): void {
+    applySceneGuidesToModel(this.mv, opts, force);
   }
 
   /** Hide OS cursor over the viewer (cinema idle); pierces model-viewer shadow DOM. */
@@ -422,6 +431,7 @@ export class ModelViewport {
     this.loadGen++;
     this.savedCamera = null;
     this.presentationMode = false;
+    resetSceneGuideSyncCache();
     this.replaceViewerElement();
   }
 
@@ -546,6 +556,17 @@ export class ModelViewport {
       mv.removeAttribute("auto-rotate");
       mv.removeAttribute("rotation-per-second");
     }
+  }
+
+  /** Transparent PNG cropped to the model silhouette at the current camera angle. */
+  async exportCutout(guideOpts: SceneGuideSyncOptions): Promise<Uint8Array> {
+    return exportCutoutPng({
+      mv: this.mv,
+      guideOpts,
+      syncGuides: (opts) => applySceneGuidesToModel(this.mv, opts),
+      getPresentation: () => this.presentationMode,
+      setPresentation: (enabled) => this.setPresentationMode(enabled),
+    });
   }
 
   private captureInitialCamera(): void {

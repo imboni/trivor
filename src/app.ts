@@ -16,6 +16,7 @@ import {
   pathKind,
   revealModelInFolder,
   resolveViewerModelPath,
+  saveCutoutDialog,
   onLoadProgress,
   onPackProgress,
   onUpdateDownloadProgress,
@@ -41,6 +42,14 @@ import {
   formatModelFormat,
   rgbaCss,
 } from "./format";
+import { CutoutExportError } from "./cutout-export";
+import { CutoutFrameGuide } from "./cutout-frame-guide";
+import { CutoutPreviewPanel } from "./cutout-preview-panel";
+import {
+  ensurePngFilename,
+  pngObjectUrl,
+  revokePngObjectUrl,
+} from "./cutout-flow";
 import { activeModelFolderKey, libraryTreeListKey, renderLibraryTree } from "./library-tree";
 import { LibraryContextMenu } from "./library-menu";
 import { isPathUnderDir, resolveLibraryMenuContext } from "./library-path";
@@ -161,6 +170,14 @@ export class App {
   private updateDownloadedBytes = 0;
   private updateDownloadTotalBytes = 0;
   private pendingStartupUpdateBanner = false;
+  private cutoutMode = false;
+  private cutoutPanelsSnapshot: { explorer: boolean; inspector: boolean } | null = null;
+  private cutoutExporting = false;
+  private cutoutPreviewOpen = false;
+  private cutoutPendingBytes: Uint8Array | null = null;
+  private cutoutPreviewUrl: string | null = null;
+  private sceneGuidesSyncedForReady = false;
+  private cutoutFrameGuideShown = false;
   private readonly shortcuts = new ShortcutStore();
   private shortcutRecording: ShortcutId | null = null;
   private readonly sceneOptions = new SceneOptionsStore();
@@ -168,6 +185,8 @@ export class App {
 
   private readonly shell: HTMLElement;
   private readonly viewport: ModelViewport;
+  private readonly cutoutFrameGuide: CutoutFrameGuide;
+  private readonly cutoutPreviewPanel: CutoutPreviewPanel;
   private readonly axisWidget: AxisOrientationWidget;
   private readonly libraryMenu: LibraryContextMenu;
   private readonly els: Record<string, HTMLElement>;
@@ -197,6 +216,10 @@ export class App {
       toolZoomIn: pick("[data-action=zoom-in]"),
       toolFitView: pick("[data-action=fit-view]"),
       toolResetView: pick("[data-action=reset-view]"),
+      toolToggleCutout: pick("[data-action=toggle-cutout-mode]"),
+      cutoutRunBar: pick("[data-bind=cutout-run-bar]"),
+      cutoutRunBtn: pick("[data-action=run-cutout-export]"),
+      cutoutRunLabel: pick("[data-bind=cutout-run-label]"),
       toolCinema: pick("[data-action=cinema-mode]"),
       toolPreviewGrid: pick("[data-action=toggle-preview-grid]"),
       toolSceneGuides: pick("[data-action=toggle-scene-guides]"),
@@ -239,6 +262,18 @@ export class App {
       cacheClearConfirmMessage: pick("[data-bind=cache-clear-confirm-message]"),
       cacheClearConfirmCancel: pick("[data-action=clear-cache-cancel]"),
       cacheClearConfirmOk: pick("[data-action=clear-cache-confirm]"),
+      cutoutBackdrop: pick("[data-bind=cutout-backdrop]"),
+      cutoutPreviewPanel: pick("[data-bind=cutout-preview-panel]"),
+      cutoutPreviewHeader: pick("[data-bind=cutout-preview-header]"),
+      cutoutPreviewStage: pick("[data-bind=cutout-preview-stage]"),
+      cutoutPreviewViewport: pick("[data-bind=cutout-preview-viewport]"),
+      cutoutPreviewResize: pick("[data-bind=cutout-preview-resize]"),
+      cutoutPreviewTitle: pick("[data-bind=cutout-preview-title]"),
+      cutoutPreviewImage: pick("[data-bind=cutout-preview-image]") as HTMLImageElement,
+      cutoutPreviewMeta: pick("[data-bind=cutout-preview-meta]"),
+      cutoutPreviewReset: pick("[data-action=cutout-preview-reset]"),
+      cutoutPreviewCancel: pick("[data-action=cutout-preview-cancel]"),
+      cutoutPreviewContinue: pick("[data-action=cutout-preview-continue]"),
       aboutLabel: pick("[data-bind=about-label]"),
       aboutName: pick("[data-bind=about-name]"),
       aboutVersion: pick("[data-bind=about-version]"),
@@ -280,6 +315,22 @@ export class App {
     };
 
     this.viewport = new ModelViewport(this.els.viewportHost);
+    this.cutoutFrameGuide = new CutoutFrameGuide(this.els.viewportHost, {
+      getModelViewer: () => (this.phase === "ready" ? this.viewport.element : null),
+    });
+    this.cutoutFrameGuide.bind();
+    this.cutoutPreviewPanel = new CutoutPreviewPanel({
+      backdrop: this.els.cutoutBackdrop,
+      panel: this.els.cutoutPreviewPanel,
+      header: this.els.cutoutPreviewHeader,
+      stage: this.els.cutoutPreviewStage,
+      viewport: this.els.cutoutPreviewViewport,
+      image: this.els.cutoutPreviewImage as HTMLImageElement,
+      resizeHandle: this.els.cutoutPreviewResize,
+      resetButton: this.els.cutoutPreviewReset,
+      meta: this.els.cutoutPreviewMeta,
+    });
+    this.cutoutPreviewPanel.bind();
     this.axisWidget = new AxisOrientationWidget(this.els.axisWidget, () => this.viewport.element);
     this.libraryMenu = new LibraryContextMenu(this.shell);
     this.libraryMenu.setHandler((action, ctx) => {
@@ -546,6 +597,23 @@ export class App {
     this.els.toolResetView.addEventListener("click", () => {
       this.resetView();
       this.viewport.focus();
+    });
+    this.els.toolToggleCutout.addEventListener("click", () => {
+      this.toggleCutoutMode();
+      this.viewport.focus();
+    });
+    this.els.cutoutRunBtn.addEventListener("click", () => {
+      void this.beginCutoutExport();
+      this.viewport.focus();
+    });
+
+    for (const action of ["close-cutout-flow", "cutout-preview-cancel"] as const) {
+      this.shell.querySelectorAll(`[data-action=${action}]`).forEach((node) => {
+        node.addEventListener("click", () => this.closeCutoutFlow());
+      });
+    }
+    this.els.cutoutPreviewContinue.addEventListener("click", () => {
+      void this.saveCutoutWithDialog();
     });
     this.els.toolCinema.addEventListener("click", () => {
       this.setCinemaMode(!this.cinemaMode);
@@ -849,6 +917,18 @@ export class App {
     this.els.toolFitView.setAttribute("aria-label", this.ui.tool_fit_view);
     this.els.toolResetView.title = this.ui.tool_reset_view;
     this.els.toolResetView.setAttribute("aria-label", this.ui.tool_reset_view);
+    this.els.toolToggleCutout.title = this.ui.tool_export_cutout;
+    this.els.toolToggleCutout.setAttribute("aria-label", this.ui.tool_export_cutout);
+    this.els.cutoutRunLabel.textContent = this.ui.cutout_create;
+    this.els.cutoutRunBtn.setAttribute("aria-label", this.ui.cutout_create);
+    this.els.cutoutPreviewTitle.textContent = this.ui.cutout_preview_title;
+    this.els.cutoutPreviewReset.title = this.ui.tool_reset_view;
+    this.els.cutoutPreviewReset.setAttribute("aria-label", this.ui.tool_reset_view);
+    this.els.cutoutPreviewCancel.textContent = this.ui.cancel;
+    this.els.cutoutPreviewContinue.textContent = this.ui.cutout_save_title;
+    for (const btn of this.shell.querySelectorAll<HTMLElement>("[data-action=close-cutout-flow]")) {
+      btn.setAttribute("aria-label", this.ui.cancel);
+    }
     this.els.toolCinema.title = this.ui.tool_cinema;
     this.els.toolCinema.setAttribute("aria-label", this.ui.tool_cinema);
     this.els.toolPreviewGrid.title = this.ui.tool_preview_grid;
@@ -942,6 +1022,19 @@ export class App {
     if (this.shortcutRecording) {
       this.handleShortcutRecord(e);
       return;
+    }
+
+    if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      if (this.cutoutFlowOpen()) {
+        e.preventDefault();
+        this.closeCutoutFlow();
+        return;
+      }
+      if (this.cutoutMode) {
+        e.preventDefault();
+        this.setCutoutMode(false);
+        return;
+      }
     }
 
     if (
@@ -1351,14 +1444,151 @@ export class App {
     }
   }
 
-  private applySceneOptions(): void {
+  private applySceneOptions(force = false): void {
     if (this.phase !== "ready") return;
-    this.viewport.syncSceneGuides(this.sceneOptions.get());
+    this.viewport.syncSceneGuides(this.sceneOptions.get(), force);
+  }
+
+  private syncSceneGuidesAfterModelReady(): void {
+    this.sceneGuidesSyncedForReady = false;
+    this.applySceneOptions(true);
+    this.sceneGuidesSyncedForReady = true;
+  }
+
+  private setCutoutMode(enabled: boolean): void {
+    if (this.cutoutMode === enabled) return;
+    if (enabled) {
+      this.cutoutPanelsSnapshot = {
+        explorer: this.explorerCollapsed,
+        inspector: this.inspectorCollapsed,
+      };
+      this.explorerCollapsed = true;
+      this.inspectorCollapsed = true;
+    } else {
+      if (this.cutoutPanelsSnapshot) {
+        this.explorerCollapsed = this.cutoutPanelsSnapshot.explorer;
+        this.inspectorCollapsed = this.cutoutPanelsSnapshot.inspector;
+        this.cutoutPanelsSnapshot = null;
+      }
+      this.closeCutoutFlow();
+      this.cutoutFrameGuide.cancelSchedule();
+      this.cutoutFrameGuide.setVisible(false);
+      this.cutoutFrameGuideShown = false;
+    }
+    this.cutoutMode = enabled;
+    this.paintCutoutModeUi();
+    if (!enabled && this.phase === "ready") {
+      this.resetView();
+      this.applySceneOptions(true);
+    }
+    this.paint();
+  }
+
+  private toggleCutoutMode(): void {
+    if (this.phase !== "ready") {
+      this.showToast(this.ui.cutout_no_model);
+      return;
+    }
+    this.setCutoutMode(!this.cutoutMode);
+  }
+
+  private paintCutoutModeUi(): void {
+    const active = this.cutoutMode && this.phase === "ready";
+    this.shell.classList.toggle("is-cutout-mode", active);
+    this.els.toolToggleCutout.classList.toggle("is-active", active);
+    const showFrame =
+      this.cutoutMode &&
+      this.phase === "ready" &&
+      !this.cutoutFlowOpen() &&
+      !this.cutoutExporting;
+    if (showFrame !== this.cutoutFrameGuideShown) {
+      this.cutoutFrameGuideShown = showFrame;
+      this.cutoutFrameGuide.setVisible(showFrame);
+    }
   }
 
   private onThemeResolved(): void {
     invalidateSceneThemeCache();
-    this.applySceneOptions();
+    this.applySceneOptions(true);
+  }
+
+  private cutoutDefaultFilename(): string {
+    if (!this.activePath) return "cutout.png";
+    const base = this.activePath.split(/[/\\]/).pop() ?? "model";
+    const stem = base.replace(/\.[^.]+$/, "");
+    return `${stem}-cutout.png`;
+  }
+
+  private cutoutFlowOpen(): boolean {
+    return this.cutoutPreviewOpen;
+  }
+
+  private closeCutoutFlow(): void {
+    revokePngObjectUrl(this.cutoutPreviewUrl);
+    this.cutoutPreviewUrl = null;
+    this.cutoutPendingBytes = null;
+    this.cutoutPreviewOpen = false;
+    this.cutoutPreviewPanel.reset();
+    this.paintCutoutModals();
+    this.paintCutoutModeUi();
+  }
+
+  private paintCutoutModals(): void {
+    const open = this.cutoutFlowOpen();
+    this.els.cutoutBackdrop.classList.toggle("hidden", !open);
+    this.els.cutoutPreviewPanel.classList.toggle("hidden", !this.cutoutPreviewOpen);
+    if (this.cutoutPreviewOpen && this.cutoutPreviewUrl) {
+      this.cutoutPreviewPanel.show(this.cutoutPreviewUrl);
+    }
+  }
+
+  private async beginCutoutExport(): Promise<void> {
+    if (this.cutoutExporting) return;
+    if (this.phase !== "ready" || !this.cutoutMode) {
+      this.showToast(this.ui.cutout_no_model);
+      return;
+    }
+
+    this.cutoutExporting = true;
+    this.cutoutFrameGuideShown = false;
+    this.cutoutFrameGuide.setVisible(false);
+    this.showToast(this.ui.cutout_exporting);
+    try {
+      const bytes = await this.viewport.exportCutout(this.sceneOptions.get());
+      revokePngObjectUrl(this.cutoutPreviewUrl);
+      this.cutoutPendingBytes = bytes;
+      this.cutoutPreviewUrl = pngObjectUrl(bytes);
+      this.cutoutPreviewOpen = true;
+      this.paintCutoutModals();
+    } catch (err) {
+      this.handleCutoutExportError(err);
+    } finally {
+      this.cutoutExporting = false;
+      this.paintCutoutModeUi();
+    }
+  }
+
+  private handleCutoutExportError(err: unknown): void {
+    if (err instanceof CutoutExportError) {
+      if (err.code === "not_ready") this.showToast(this.ui.cutout_no_model);
+      else if (err.code === "empty") this.showToast(this.ui.cutout_empty, "error");
+      else this.showToast(this.ui.cutout_failed, "error");
+    } else {
+      this.showToast(this.ui.cutout_failed, "error");
+    }
+  }
+
+  private async saveCutoutWithDialog(): Promise<void> {
+    if (!this.cutoutPendingBytes) return;
+    const filename = ensurePngFilename(this.cutoutDefaultFilename());
+    try {
+      const saved = await saveCutoutDialog(filename, this.cutoutPendingBytes);
+      if (!saved) return;
+      this.showToast(this.ui.cutout_saved.replace("{path}", saved), "success");
+      this.closeCutoutFlow();
+    } catch {
+      this.showToast(this.ui.cutout_failed, "error");
+    }
   }
 
   private resetView(): void {
@@ -1521,6 +1751,7 @@ export class App {
   private setCinemaMode(on: boolean): void {
     if (on && this.phase !== "ready") return;
     if (on === this.cinemaMode) return;
+    if (on) this.setCutoutMode(false);
     this.cinemaMode = on;
     if (on) {
       this.cinemaRotatePaused = false;
@@ -2359,6 +2590,7 @@ export class App {
       }
       this.saveInitialCameraForPath(path);
       this.phase = "ready";
+      this.syncSceneGuidesAfterModelReady();
       this.loadPercent = 100;
       this.paintOverlay();
       if (this.cinemaMode && !this.cinemaRotatePaused) {
@@ -2432,8 +2664,17 @@ export class App {
     const modelPreview =
       this.phase === "ready" || (this.phase === "loading" && this.activePath !== null);
     this.shell.classList.toggle("is-model-preview", modelPreview);
-    this.applySceneOptions();
+    if (this.phase === "ready") {
+      if (!this.sceneGuidesSyncedForReady) {
+        this.applySceneOptions();
+        this.sceneGuidesSyncedForReady = true;
+      }
+    } else {
+      this.sceneGuidesSyncedForReady = false;
+    }
     this.viewport.setPresentationMode(this.phase === "ready");
+    if (this.phase !== "ready" && this.cutoutMode) this.setCutoutMode(false);
+    else this.paintCutoutModeUi();
     this.setGridParallaxDormant?.(modelPreview);
     this.els.overlay.classList.toggle("is-visible", overlayVisible);
     this.els.overlay.classList.toggle("is-empty", this.phase === "empty");
@@ -2987,8 +3228,20 @@ const SHELL_HTML = `
       <button type="button" class="dock-btn" data-action="reset-view" aria-label="">
         <span class="material-symbols-outlined">restart_alt</span>
       </button>
+      <button type="button" class="dock-btn" data-action="toggle-cutout-mode" aria-label="">
+        <span class="dock-icon-cutout" aria-hidden="true">
+          <span class="material-symbols-outlined">content_cut</span>
+        </span>
+      </button>
     </div>
   </footer>
+
+  <div class="cutout-run-bar" data-bind="cutout-run-bar">
+    <button type="button" class="cutout-run-btn glass-capsule" data-action="run-cutout-export">
+      <span class="material-symbols-outlined" aria-hidden="true">content_cut</span>
+      <span data-bind="cutout-run-label"></span>
+    </button>
+  </div>
 
   <div class="cinema-controls">
     <button type="button" class="cinema-ctrl glass-capsule" data-action="cinema-toggle-rotate" aria-label="">
@@ -3145,6 +3398,39 @@ const SHELL_HTML = `
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="cutout-backdrop hidden" data-bind="cutout-backdrop">
+    <div
+      class="cutout-panel cutout-preview-panel glass-capsule hidden"
+      data-bind="cutout-preview-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cutout-preview-heading"
+    >
+      <header class="cutout-panel-header cutout-panel-drag-handle" data-bind="cutout-preview-header">
+        <h2 id="cutout-preview-heading" data-bind="cutout-preview-title"></h2>
+        <button type="button" class="cutout-panel-close" data-action="close-cutout-flow" aria-label="">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </header>
+      <div class="cutout-preview-body">
+        <div class="cutout-preview-stage" data-bind="cutout-preview-stage">
+          <div class="cutout-preview-viewport" data-bind="cutout-preview-viewport">
+            <img class="cutout-preview-image" data-bind="cutout-preview-image" alt="" />
+          </div>
+          <span class="cutout-preview-meta" data-bind="cutout-preview-meta"></span>
+          <button type="button" class="cutout-preview-reset" data-action="cutout-preview-reset">
+            <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
+          </button>
+        </div>
+      </div>
+      <footer class="cutout-panel-footer">
+        <button type="button" class="btn btn-secondary" data-action="cutout-preview-cancel"></button>
+        <button type="button" class="btn btn-primary" data-action="cutout-preview-continue"></button>
+      </footer>
+      <div class="cutout-preview-resize-handle" data-bind="cutout-preview-resize" aria-hidden="true"></div>
     </div>
   </div>
 

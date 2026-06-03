@@ -130,6 +130,15 @@ export interface UiBundle {
   scene_guides: string;
   tool_preview_grid: string;
   tool_scene_guides: string;
+  tool_export_cutout: string;
+  cutout_create: string;
+  cutout_exporting: string;
+  cutout_saved: string;
+  cutout_failed: string;
+  cutout_no_model: string;
+  cutout_empty: string;
+  cutout_preview_title: string;
+  cutout_save_title: string;
 }
 
 export interface AppInfo {

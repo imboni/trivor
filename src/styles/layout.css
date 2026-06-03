@@ -167,12 +167,159 @@ html.is-macos-overlay-titlebar .titlebar-drag {
 }
 
 .viewport-host {
+  position: relative;
   grid-area: stack;
   width: 100%;
   height: 100%;
   min-height: 0;
   outline: none;
   z-index: 2;
+}
+
+.cutout-frame-guide {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 72%, var(--text));
+  border-radius: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--motion) var(--ease),
+    visibility var(--motion) var(--ease),
+    left var(--motion) var(--ease),
+    top var(--motion) var(--ease),
+    width var(--motion) var(--ease),
+    height var(--motion) var(--ease);
+}
+
+.cutout-frame-guide:not(.hidden) {
+  opacity: 0.92;
+  visibility: visible;
+}
+
+.cutout-run-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--shell-pad) + var(--bottom-dock-outer-h) + 52px);
+  z-index: 55;
+  translate: -50% 8px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-slow) var(--ease),
+    visibility var(--motion-slow) var(--ease),
+    translate var(--motion-slow) var(--ease);
+}
+
+.shell.is-cutout-mode:not(.is-cinema) .cutout-run-bar {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  translate: -50% 0;
+}
+
+.cutout-run-btn.glass-capsule {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-accent);
+  background: var(--cutout-run-bg);
+  color: var(--cutout-run-text);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  box-shadow: var(--cutout-run-shadow);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  transition:
+    background var(--motion) var(--ease),
+    border-color var(--motion) var(--ease),
+    box-shadow var(--motion) var(--ease),
+    transform var(--motion-fast) var(--ease);
+}
+
+.cutout-run-btn.glass-capsule::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    112deg,
+    transparent 0%,
+    transparent 42%,
+    color-mix(in srgb, var(--cutout-run-sheen-core) 32%, transparent) 48%,
+    var(--cutout-run-sheen-core) 50%,
+    color-mix(in srgb, var(--cutout-run-sheen-core) 32%, transparent) 52%,
+    transparent 58%,
+    transparent 100%
+  );
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  background-position: 130% 0;
+  opacity: var(--cutout-run-sheen-opacity);
+  animation: cutout-run-sheen 2.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cutout-run-btn.glass-capsule:hover::after {
+  opacity: var(--cutout-run-sheen-opacity-hover);
+}
+
+.cutout-run-btn.glass-capsule > * {
+  position: relative;
+  z-index: 1;
+}
+
+.cutout-run-btn.glass-capsule:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-accent));
+  box-shadow:
+    var(--cutout-run-shadow),
+    0 0 18px color-mix(in srgb, var(--accent-glow) 28%, transparent);
+  transform: translateY(-1px);
+}
+
+.cutout-run-btn.glass-capsule:active {
+  transform: translateY(0);
+}
+
+.cutout-run-btn .material-symbols-outlined {
+  font-size: 18px;
+  line-height: 1;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
+@keyframes cutout-run-sheen {
+  0%,
+  52% {
+    background-position: 130% 0;
+  }
+
+  100% {
+    background-position: -30% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cutout-run-btn.glass-capsule::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+.shell.is-cinema.is-cutout-mode .cutout-run-bar {
+  bottom: calc(var(--shell-pad) + var(--cinema-controls-h) + var(--chrome-gap) + 52px);
 }
 
 .viewport-host model-viewer {

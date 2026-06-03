@@ -119,6 +119,22 @@
   --scene-widget-border: rgba(255, 255, 255, 0.1);
   --axis-widget-front: 0.88;
   --axis-widget-back: 0.36;
+
+  --cutout-checker-base: #3a3d44;
+  --cutout-checker-light: #4a4e58;
+
+  --cutout-run-text: var(--accent);
+  --cutout-run-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, rgba(255, 255, 255, 0.1) 100%, var(--accent-soft)) 0%,
+    color-mix(in srgb, var(--accent-soft) 78%, var(--bg-glass)) 100%
+  );
+  --cutout-run-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.16) 100%, transparent);
+  --cutout-run-sheen-core: rgba(255, 255, 255, 0.92);
+  --cutout-run-sheen-opacity: 0.72;
+  --cutout-run-sheen-opacity-hover: 0.88;
 }
 
 :root[data-theme="light"] {
@@ -194,6 +210,22 @@
   --scene-widget-border: rgba(12, 24, 48, 0.1);
   --axis-widget-front: 0.92;
   --axis-widget-back: 0.4;
+
+  --cutout-checker-base: #d8dde8;
+  --cutout-checker-light: #c8ceda;
+
+  --cutout-run-text: var(--accent-deep);
+  --cutout-run-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, rgba(255, 255, 255, 0.94) 100%, var(--accent-soft)) 0%,
+    color-mix(in srgb, var(--bg-glass) 82%, var(--accent-soft)) 100%
+  );
+  --cutout-run-shadow:
+    0 6px 22px color-mix(in srgb, var(--accent) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.98) 100%, transparent);
+  --cutout-run-sheen-core: rgba(255, 255, 255, 0.96);
+  --cutout-run-sheen-opacity: 0.58;
+  --cutout-run-sheen-opacity-hover: 0.72;
 }
 
 * {

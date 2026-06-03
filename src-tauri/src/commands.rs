@@ -114,6 +114,25 @@ pub fn open_folder_dialog() -> Option<String> {
 }
 
 #[tauri::command]
+pub fn save_cutout_dialog(
+    state: State<'_, Mutex<AppState>>,
+    default_filename: String,
+    png_bytes: Vec<u8>,
+) -> Option<String> {
+    let state = state.lock().expect("app state");
+    let i18n = I18n::new(state.locale);
+    let filter = i18n.t(MessageKey::PngDialogFilter);
+    let name = default_filename.trim();
+    let mut dialog = rfd::FileDialog::new().add_filter(filter, &["png"]);
+    if !name.is_empty() {
+        dialog = dialog.set_file_name(name);
+    }
+    let path = dialog.save_file()?;
+    std::fs::write(&path, png_bytes).ok()?;
+    Some(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 pub fn scan_models_folder(
     dir: String,
     state: State<'_, Mutex<AppState>>,

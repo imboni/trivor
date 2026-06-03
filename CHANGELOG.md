@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cutout export** from the viewport dock: captures the model with a transparent background, tight alpha crop, and optional padding — 视口工具栏 **抠图导出**：透明背景、按 alpha 紧裁、可留边距
+- Full-screen **preview panel** before save: drag to reposition, resize the panel, pan/zoom the image, reset view — 保存前全屏 **预览面板**：拖动、缩放面板、平移/缩放图像、重置视图
+- **Native Save** dialog (`save_cutout_dialog`) writes PNG via the system file picker — 通过系统 **另存为** 对话框保存 PNG
+- On-canvas **frame guide** aligned to the export crop (presentation mode, guide sync fixes) — 画布 **取景框** 与导出裁切对齐（演示模式与辅助线同步修复）
+
 ## [0.1.2] - 2026-06-01
 
 ### Changed
