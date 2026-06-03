@@ -6,7 +6,7 @@ const ISSUES_URL = "https://github.com/imboni/trivor/issues";
 const copy = {
   en: {
     metaDescription:
-      "Trivor — a lightweight 3D model viewer for macOS. Open glTF and GLB files directly from Finder.",
+      "Trivor — a lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect models, and export transparent PNG cutouts.",
     screenshotAlt: "Trivor app window showing a 3D model viewer on macOS",
     langToggle: "Switch to Chinese",
     themeToggle: "Toggle theme",
@@ -15,7 +15,7 @@ const copy = {
     heroTagline: "See every dimension.",
     heroQuote: "Blank as paper—awaiting the stroke of mountains.",
     heroDesc:
-      "A lightweight 3D model viewer for macOS. Open glTF and GLB files and inspect them in seconds.",
+      "A lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect them in seconds, and export transparent PNG cutouts.",
     heroMeta: "macOS 13+ · glTF / GLB · Free",
     linkFeatures: "Features",
     linkFaq: "FAQ",
@@ -27,6 +27,9 @@ const copy = {
     featureBrowseDesc: "Open a single model or an entire folder, then switch between files in the sidebar.",
     featureMacTitle: "Native on macOS",
     featureMacDesc: "Open from Finder, use the menu bar, and rely on familiar keyboard shortcuts.",
+    featureCutoutTitle: "Cutout export",
+    featureCutoutDesc:
+      "Export a transparent PNG from the current view — preview, pan/zoom, then save via the native dialog.",
     faqTitle: "FAQ",
     faqQ1: "How do I install Trivor?",
     faqA1: "Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.",
@@ -44,7 +47,7 @@ const copy = {
     footerIssues: "Feedback",
   },
   zh: {
-    metaDescription: "Trivor（极视）— macOS 轻量 3D 模型查看器。打开 glTF / GLB，访达即用。",
+    metaDescription: "Trivor（极视）— macOS 轻量 3D 模型查看器。打开 glTF / GLB，查看模型，导出透明背景 PNG 抠图。",
     screenshotAlt: "Trivor macOS 应用窗口，展示 3D 模型查看界面",
     langToggle: "Switch to English",
     themeToggle: "切换主题",
@@ -52,7 +55,7 @@ const copy = {
     heroBrandSub: "极视",
     heroTagline: "所见即三维。",
     heroQuote: "空阔如纸，等一笔山河。",
-    heroDesc: "macOS 上的轻量 3D 模型查看器。打开文件，看一眼，继续干活。",
+    heroDesc: "macOS 上的轻量 3D 模型查看器。打开文件，看一眼，需要时一键导出透明 PNG 抠图。",
     heroMeta: "macOS 13+ · glTF / GLB · 免费",
     linkFeatures: "功能",
     linkFaq: "常见问题",
@@ -64,6 +67,8 @@ const copy = {
     featureBrowseDesc: "打开单个模型或整个目录，在侧栏里快速切换。",
     featureMacTitle: "融入 Mac",
     featureMacDesc: "原生应用体验 — 访达打开、菜单栏、熟悉的快捷键。",
+    featureCutoutTitle: "抠图导出",
+    featureCutoutDesc: "从当前视角导出透明背景 PNG，预览后可缩放查看细节，再通过系统对话框保存。",
     faqTitle: "常见问题",
     faqQ1: "如何安装 Trivor？",
     faqA1: "下载 .dmg，将 Trivor 拖入「应用程序」，从启动台或访达打开即可。",

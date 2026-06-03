@@ -45,6 +45,11 @@
         <rect x="3" y="5" width="18" height="12" rx="2" />
         <path d="M2 19h20" stroke-linecap="round" />
       </symbol>
+      <symbol id="icon-cutout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="6" cy="6" r="2.5" />
+        <circle cx="6" cy="18" r="2.5" />
+        <path d="M8.12 8.12 20 20M8.12 15.88 20 4" stroke-linecap="round" />
+      </symbol>
     </svg>
 
     <div class="viewport-bg is-grid-idle" id="viewport-bg" aria-hidden="true">
@@ -157,6 +162,15 @@
                 <h3 data-i18n="featureMacTitle">Native on macOS</h3>
                 <p data-i18n="featureMacDesc">
                   Open from Finder, use the menu bar, and rely on familiar keyboard shortcuts.
+                </p>
+              </article>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-cutout" /></svg>
+                </div>
+                <h3 data-i18n="featureCutoutTitle">Cutout export</h3>
+                <p data-i18n="featureCutoutDesc">
+                  Export a transparent PNG from the current view — preview, pan/zoom, then save via the native dialog.
                 </p>
               </article>
             </div>
