@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-03
+
 ### Added
 
 - **Cutout export** from the viewport dock: captures the model with a transparent background, tight alpha crop, and optional padding — 视口工具栏 **抠图导出**：透明背景、按 alpha 紧裁、可留边距

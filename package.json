@@ -1,6 +1,6 @@
 {
   "name": "trivor",
-  "version": "0.1.2",
+  "version": "0.3.0",
   "description": "A lightweight 3D model viewer, available for macOS.",
   "license": "MIT",
   "repository": {
