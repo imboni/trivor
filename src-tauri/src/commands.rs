@@ -1,10 +1,10 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{async_runtime, Emitter, Manager, State, WebviewWindow};
+use tauri::{async_runtime, AppHandle, Emitter, Manager, State, WebviewWindow};
 use trivor_core::{LocalePreference, ModelListEntry, SceneSummary, ThemePreference};
 use trivor_i18n::{I18n, MessageKey, UiBundle};
 use trivor_loaders::{list_models_in_folder, load_scene_summary, resolve_viewer_model, file_size, clear_viewer_cache, viewer_cache_byte_size, LoadError};
@@ -113,23 +113,49 @@ pub fn open_folder_dialog() -> Option<String> {
     rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().into_owned())
 }
 
+/// macOS requires native save panels on the main thread.
+fn save_file_on_main_thread(
+    app: &AppHandle,
+    filter_name: String,
+    extensions: &[&str],
+    default_filename: &str,
+) -> Result<Option<PathBuf>, String> {
+    let extensions: Vec<String> = extensions.iter().map(|ext| (*ext).to_string()).collect();
+    let default_name = default_filename.trim().to_string();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let app = app.clone();
+
+    app.run_on_main_thread(move || {
+        let mut dialog = rfd::FileDialog::new().add_filter(filter_name, &extensions);
+        if !default_name.is_empty() {
+            dialog = dialog.set_file_name(&default_name);
+        }
+        let _ = tx.send(dialog.save_file());
+    })
+    .map_err(|e| e.to_string())?;
+
+    rx.recv().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn save_cutout_dialog(
+    app: AppHandle,
     state: State<'_, Mutex<AppState>>,
     default_filename: String,
     png_bytes: Vec<u8>,
-) -> Option<String> {
-    let state = state.lock().expect("app state");
-    let i18n = I18n::new(state.locale);
-    let filter = i18n.t(MessageKey::PngDialogFilter);
-    let name = default_filename.trim();
-    let mut dialog = rfd::FileDialog::new().add_filter(filter, &["png"]);
-    if !name.is_empty() {
-        dialog = dialog.set_file_name(name);
-    }
-    let path = dialog.save_file()?;
-    std::fs::write(&path, png_bytes).ok()?;
-    Some(path.to_string_lossy().into_owned())
+) -> Result<Option<String>, String> {
+    let filter = {
+        let state = state.lock().expect("app state");
+        I18n::new(state.locale).t(MessageKey::PngDialogFilter).to_string()
+    };
+
+    let path = match save_file_on_main_thread(&app, filter, &["png"], &default_filename)? {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+
+    std::fs::write(&path, png_bytes).map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -558,25 +584,15 @@ pub async fn download_update(url: String, window: WebviewWindow) -> Result<Strin
 }
 
 #[tauri::command]
-pub fn open_downloaded_update(path: String) -> Result<(), String> {
+pub fn install_downloaded_update(path: String, app: tauri::AppHandle) -> Result<(), String> {
     let path = Path::new(&path);
     if !path.exists() {
         return Err(format!("File not found: {}", path.display()));
     }
 
-    use std::process::Command;
-
     #[cfg(target_os = "macos")]
     {
-        let status = Command::new("open")
-            .arg(path)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err("Failed to open installer".to_string())
-        }
+        return crate::macos_update::install_downloaded_dmg(path, &app);
     }
 
     #[cfg(not(target_os = "macos"))]

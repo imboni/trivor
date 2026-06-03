@@ -1,5 +1,7 @@
 mod chrome;
 mod commands;
+#[cfg(target_os = "macos")]
+mod macos_update;
 mod menu;
 mod open_external;
 
@@ -56,7 +58,7 @@ pub fn run() {
             commands::get_app_info,
             commands::check_for_updates,
             commands::download_update,
-            commands::open_downloaded_update,
+            commands::install_downloaded_update,
             open_external::complete_startup,
             open_external::path_kind,
         ])
@@ -71,6 +73,9 @@ pub fn run() {
 
             ensure_gltfpack_configured();
             set_gltfpack_dev_bundle(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+            #[cfg(target_os = "macos")]
+            crate::macos_update::cleanup_stale_trivor_volumes();
 
             let window = app.get_webview_window("main").expect("main window");
 

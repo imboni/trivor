@@ -11,7 +11,7 @@ import {
   loadModel,
   normalizeModelPath,
   modelFileSize,
-  openDownloadedUpdate,
+  installDownloadedUpdate,
   openExternalUrl,
   pathKind,
   revealModelInFolder,
@@ -2339,8 +2339,8 @@ export class App {
 
     try {
       const path = await downloadUpdate(url);
-      await openDownloadedUpdate(path);
       this.showToast(this.ui.update_download_complete, "success");
+      await installDownloadedUpdate(path);
       this.dismissUpdateBanner();
     } catch {
       this.showToast(this.ui.update_download_failed, "error");

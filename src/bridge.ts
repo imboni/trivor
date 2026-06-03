@@ -78,8 +78,8 @@ export function downloadUpdate(url: string): Promise<string> {
   return invoke("download_update", { url });
 }
 
-export function openDownloadedUpdate(path: string): Promise<void> {
-  return invoke("open_downloaded_update", { path });
+export function installDownloadedUpdate(path: string): Promise<void> {
+  return invoke("install_downloaded_update", { path });
 }
 
 export function viewerCacheSize(): Promise<number> {
@@ -114,6 +114,6 @@ export function saveCutoutDialog(
 ): Promise<string | null> {
   return invoke("save_cutout_dialog", {
     defaultFilename,
-    pngBytes: Array.from(pngBytes),
+    pngBytes,
   });
 }

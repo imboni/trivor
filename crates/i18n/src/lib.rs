@@ -109,14 +109,14 @@ impl I18n {
             (_, MessageKey::DownloadUpdate) => "Download Update",
             (Locale::ZhHans, MessageKey::UpdateBannerTitle) => "新版本 v{version} 已发布",
             (_, MessageKey::UpdateBannerTitle) => "Version {version} is ready",
-            (Locale::ZhHans, MessageKey::UpdateBannerBody) => "下载后即可安装更新。",
-            (_, MessageKey::UpdateBannerBody) => "Download to install the update.",
+            (Locale::ZhHans, MessageKey::UpdateBannerBody) => "下载后将自动安装并重启应用。",
+            (_, MessageKey::UpdateBannerBody) => "Download to install silently and restart the app.",
             (Locale::ZhHans, MessageKey::UpdateDismiss) => "暂不更新",
             (_, MessageKey::UpdateDismiss) => "Not Now",
             (Locale::ZhHans, MessageKey::UpdateDownloading) => "正在下载… {percent}%",
             (_, MessageKey::UpdateDownloading) => "Downloading… {percent}%",
-            (Locale::ZhHans, MessageKey::UpdateDownloadComplete) => "下载完成，正在打开安装包…",
-            (_, MessageKey::UpdateDownloadComplete) => "Download complete. Opening installer…",
+            (Locale::ZhHans, MessageKey::UpdateDownloadComplete) => "下载完成，正在安装更新…",
+            (_, MessageKey::UpdateDownloadComplete) => "Download complete. Installing update…",
             (Locale::ZhHans, MessageKey::UpdateDownloadFailed) => "应用内下载失败，已在浏览器打开发布页。",
             (_, MessageKey::UpdateDownloadFailed) => {
                 "In-app download failed. Opening the release page…"

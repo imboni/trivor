@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Native Save** dialog (`save_cutout_dialog`) writes PNG via the system file picker — 通过系统 **另存为** 对话框保存 PNG
 - On-canvas **frame guide** aligned to the export crop (presentation mode, guide sync fixes) — 画布 **取景框** 与导出裁切对齐（演示模式与辅助线同步修复）
 
+### Changed
+
+- In-app update on macOS installs silently and relaunches the app (no manual DMG drag) — macOS 应用内更新改为静默安装并重启，无需手动拖入 Applications
+
+### Fixed
+
+- Cutout save crash in sandboxed release builds: read-write entitlement, binary IPC for PNG bytes, main-thread save dialog — 修复打包版保存抠图崩溃：沙盒写入权限、二进制 IPC、主线程保存对话框
+
 ## [0.1.2] - 2026-06-01
 
 ### Changed
