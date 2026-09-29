@@ -12,7 +12,8 @@ export const VIEWER_HARD_MAX_BYTES = 1024 * 1024 * 1024;
 export const VIEWER_HARD_MAX_TRIANGLES = 20_000_000;
 
 export function isPreviewCachePath(viewerPath: string): boolean {
-  return viewerPath.includes("-preview-");
+  const name = viewerPath.split(/[/\\]/).pop() ?? viewerPath;
+  return /^preview-v\d+-/.test(name) || name.includes("-preview-");
 }
 
 const GENERIC_VIEWER_ERRORS = new Set([
@@ -32,6 +33,7 @@ function isTechnicalViewerError(message: string): boolean {
 }
 
 function localizeBackendLoadError(raw: string, ui: UiBundle): string | null {
+  if (raw.startsWith("IMPORT_FAILED:")) return ui.error_model_import;
   if (raw === "GLTFPACK_SIDECAR_MISSING") {
     return ui.error_gltfpack_missing;
   }

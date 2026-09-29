@@ -9,7 +9,9 @@ export type ShortcutId =
   | "zoom_out"
   | "fit_view"
   | "reset_view"
-  | "cinema_mode";
+  | "cinema_mode"
+  | "export_model"
+  | "cutout_copy";
 
 export type ShortcutBinding = {
   key: string;
@@ -102,6 +104,20 @@ const DEFINITIONS: ShortcutDefinition[] = [
     customizable: true,
     label: (ui) => ui.tool_cinema,
   },
+  {
+    id: "cutout_copy",
+    category: "viewer",
+    defaults: [{ key: "c", meta: true, shift: true }],
+    customizable: true,
+    label: (ui) => ui.cutout_copy_title,
+  },
+  {
+    id: "export_model",
+    category: "general",
+    defaults: [{ key: "e", meta: true, shift: true }],
+    customizable: false,
+    label: (ui) => ui.export_model_title,
+  },
 ];
 
 const DEFINITION_BY_ID = new Map(DEFINITIONS.map((d) => [d.id, d]));
@@ -169,6 +185,8 @@ export class ShortcutStore {
   }
 
   bindingsFor(id: ShortcutId): ShortcutBinding[] {
+    const def = DEFINITION_BY_ID.get(id);
+    if (!def?.customizable) return def?.defaults ?? [];
     const custom = this.overrides[id];
     if (custom?.length) return custom;
     return DEFINITION_BY_ID.get(id)?.defaults ?? [];
@@ -221,7 +239,7 @@ function findConflict(
   for (const def of DEFINITIONS) {
     if (def.id === exceptId) continue;
     const list =
-      overrides[def.id]?.length ? overrides[def.id]! : def.defaults;
+      def.customizable && overrides[def.id]?.length ? overrides[def.id]! : def.defaults;
     if (list.some((b) => bindingsEqual(b, binding))) return def.id;
   }
   return null;
@@ -277,6 +295,12 @@ export function renderShortcutsSettings(
     const bindings = store.bindingsFor(def.id);
     const recording = recordingId === def.id;
     const display = recording ? copy.pressKeys : formatBindings(bindings);
+    if (!def.customizable) {
+      return `<div class="settings-shortcut-row is-static">
+        <span class="settings-shortcut-label">${escapeHtml(def.label(ui))}</span>
+        <span class="settings-shortcut-key is-readonly">${escapeHtml(display)}</span>
+      </div>`;
+    }
     return `
       <div class="settings-shortcut-row${recording ? " is-recording" : ""}" data-shortcut-id="${def.id}">
         <span class="settings-shortcut-label">${escapeHtml(def.label(ui))}</span>

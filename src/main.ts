@@ -1,3 +1,4 @@
+import "./model-viewer-decoders";
 import "./fonts";
 import { App } from "./app";
 

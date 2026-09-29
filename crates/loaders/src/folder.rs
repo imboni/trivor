@@ -4,7 +4,7 @@ use trivor_core::ModelListEntry;
 
 use crate::LoadError;
 
-const MODEL_EXT: &[&str] = &["glb", "gltf"];
+const MODEL_EXT: &[&str] = &["glb", "gltf", "obj", "stl"];
 const MAX_DEPTH: u8 = 4;
 
 fn is_model_file(path: &Path) -> Option<String> {

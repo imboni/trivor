@@ -103,7 +103,7 @@ pub fn open_model_dialog(state: State<'_, Mutex<AppState>>) -> Option<String> {
     let i18n = I18n::new(state.locale);
     let filter = i18n.t(MessageKey::FileDialogFilter);
     rfd::FileDialog::new()
-        .add_filter(filter, &["gltf", "glb"])
+        .add_filter(filter, &["gltf", "glb", "obj", "stl"])
         .pick_file()
         .map(|p| canonicalize_path(&p))
 }
@@ -156,6 +156,36 @@ pub fn save_cutout_dialog(
 
     std::fs::write(&path, png_bytes).map_err(|e| e.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn export_model_dialog(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
+    default_filename: String,
+    source_path: String,
+) -> Result<Option<String>, String> {
+    let filter = {
+        let state = state.lock().expect("app state");
+        I18n::new(state.locale).t(MessageKey::GlbDialogFilter).to_string()
+    };
+
+    async_runtime::spawn_blocking(move || {
+        let source = PathBuf::from(&source_path);
+        if !source.is_file() {
+            return Err("source file missing".into());
+        }
+
+        let path = match save_file_on_main_thread(&app, filter, &["glb"], &default_filename)? {
+            Some(path) => path,
+            None => return Ok(None),
+        };
+
+        trivor_loaders::export_model_glb(&source, &path).map_err(|e| e.to_string())?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

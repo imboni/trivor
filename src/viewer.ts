@@ -1,6 +1,11 @@
 import "@google/model-viewer";
 
-import { exportCutoutPng } from "./cutout-export";
+import { exportCutoutPng, type CutoutExportOptions } from "./cutout-export";
+import {
+  resetModelAppearanceCache,
+  syncModelAppearance as applyModelAppearanceToModel,
+  type ModelAppearanceOptions,
+} from "./model-appearance";
 import {
   resetSceneGuideSyncCache,
   syncSceneGuides as applySceneGuidesToModel,
@@ -296,6 +301,11 @@ export class ModelViewport {
     applySceneGuidesToModel(this.mv, opts, force);
   }
 
+  /** Global tint and opacity overrides (non-destructive). */
+  syncModelAppearance(opts: ModelAppearanceOptions, force = false): void {
+    void applyModelAppearanceToModel(this.mv, opts, force);
+  }
+
   /** Hide OS cursor over the viewer (cinema idle); pierces model-viewer shadow DOM. */
   setCursorHidden(hidden: boolean): void {
     this.cursorHidden = hidden;
@@ -349,6 +359,7 @@ export class ModelViewport {
     if (this.mv.src && this.mv.src !== assetUrl) {
       await prepareModelSwap(this.mv);
     }
+    if (gen !== this.loadGen || abort.signal.aborted) return;
 
     const mv = this.mv;
 
@@ -432,6 +443,7 @@ export class ModelViewport {
     this.savedCamera = null;
     this.presentationMode = false;
     resetSceneGuideSyncCache();
+    resetModelAppearanceCache();
     this.replaceViewerElement();
   }
 
@@ -559,13 +571,17 @@ export class ModelViewport {
   }
 
   /** Transparent PNG cropped to the model silhouette at the current camera angle. */
-  async exportCutout(guideOpts: SceneGuideSyncOptions): Promise<Uint8Array> {
+  async exportCutout(
+    guideOpts: SceneGuideSyncOptions,
+    options?: CutoutExportOptions,
+  ): Promise<Uint8Array> {
     return exportCutoutPng({
       mv: this.mv,
       guideOpts,
       syncGuides: (opts) => applySceneGuidesToModel(this.mv, opts),
       getPresentation: () => this.presentationMode,
       setPresentation: (enabled) => this.setPresentationMode(enabled),
+      options,
     });
   }
 

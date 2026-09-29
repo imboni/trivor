@@ -3,9 +3,8 @@
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
-use base64::Engine;
+use crate::cache;
 use gltf::binary::Glb;
 use gltf::json;
 use gltf::json::validation::USize64;
@@ -13,7 +12,10 @@ use gltf::{buffer, Gltf};
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, RgbaImage};
 
-use crate::gltf_inspect::{inspect_gltf_file, inspect_gltf_quick, needs_preview_optimize};
+use crate::gltf_import::{import_obj_to_cache, import_stl_to_cache};
+use crate::gltf_inspect::{
+    gltf_skips_rust_repack, inspect_gltf_file, inspect_gltf_quick, needs_preview_optimize,
+};
 use crate::gltf_optimize::maybe_optimize_preview;
 use crate::LoadError;
 use crate::ProgressFn;
@@ -33,32 +35,14 @@ fn parse_err(path: &Path, message: impl Into<String>) -> LoadError {
     }
 }
 
-fn read_uri_bytes(base: Option<&Path>, uri: &str, source: &Path) -> Result<Vec<u8>, LoadError> {
-    if let Some(rest) = uri.strip_prefix("data:") {
-        let b64 = rest
-            .split_once(";base64,")
-            .map(|(_, data)| data)
-            .unwrap_or(rest);
-        return base64::engine::general_purpose::STANDARD
-            .decode(b64)
-            .map_err(|e| parse_err(source, format!("invalid data URI: {e}")));
-    }
-    let base = base.unwrap_or_else(|| Path::new("."));
-    std::fs::read(base.join(uri)).map_err(|e| LoadError::Io {
-        path: source.to_path_buf(),
-        message: e.to_string(),
-    })
-}
-
 fn read_encoded_image(
     image: &json::image::Image,
     buffer_views: &[json::buffer::View],
     buffers: &[buffer::Data],
-    base: Option<&Path>,
     source: &Path,
 ) -> Result<Vec<u8>, LoadError> {
     if let Some(uri) = &image.uri {
-        return read_uri_bytes(base, uri, source);
+        return crate::asset_uri::read_asset(source, uri);
     }
     let bv_idx = image
         .buffer_view
@@ -82,21 +66,25 @@ fn decode_rgba(encoded: &[u8], mime: Option<&str>, source: &Path) -> Result<Rgba
         Some("image/png") => ImageFormat::Png,
         Some("image/jpeg") | Some("image/jpg") => ImageFormat::Jpeg,
         Some("image/webp") => ImageFormat::WebP,
-        _ => image::guess_format(encoded).map_err(|_| {
-            parse_err(source, "unsupported or unknown texture encoding")
-        })?,
+        _ => image::guess_format(encoded)
+            .map_err(|_| parse_err(source, "unsupported or unknown texture encoding"))?,
     };
-    let img = image::load_from_memory_with_format(encoded, format).map_err(|e| {
-        parse_err(source, format!("failed to decode texture: {e}"))
-    })?;
+    let img = image::load_from_memory_with_format(encoded, format)
+        .map_err(|e| parse_err(source, format!("failed to decode texture: {e}")))?;
     Ok(img.to_rgba8())
 }
 
 fn encode_rgba_png(img: &RgbaImage, source: &Path) -> Result<Vec<u8>, LoadError> {
     let mut buf = Vec::new();
-    let encoder = PngEncoder::new_with_quality(&mut buf, CompressionType::Fast, FilterType::NoFilter);
+    let encoder =
+        PngEncoder::new_with_quality(&mut buf, CompressionType::Fast, FilterType::NoFilter);
     encoder
-        .write_image(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgba8)
+        .write_image(
+            img.as_raw(),
+            img.width(),
+            img.height(),
+            ExtendedColorType::Rgba8,
+        )
         .map_err(|e| parse_err(source, format!("failed to encode texture: {e}")))?;
     Ok(buf)
 }
@@ -159,10 +147,7 @@ fn open_for_pack(source: &Path) -> Result<(Gltf, Option<PathBuf>), LoadError> {
 fn needs_viewer_repack(source: &Path) -> Result<bool, LoadError> {
     let (gltf, _) = open_for_pack(source)?;
     let doc = &gltf.document;
-    if doc
-        .extensions_required()
-        .any(|e| e == EXT_TEXTURE_WEBP)
-    {
+    if doc.extensions_required().any(|e| e == EXT_TEXTURE_WEBP) {
         return Ok(true);
     }
     if doc.extensions_used().any(|e| e == EXT_TEXTURE_WEBP) {
@@ -170,7 +155,9 @@ fn needs_viewer_repack(source: &Path) -> Result<bool, LoadError> {
     }
     for image in doc.images() {
         match image.source() {
-            gltf::image::Source::View { mime_type, .. } if mime_type == "image/webp" => return Ok(true),
+            gltf::image::Source::View { mime_type, .. } if mime_type == "image/webp" => {
+                return Ok(true)
+            }
             gltf::image::Source::Uri { mime_type, uri } => {
                 if mime_type == Some("image/webp") {
                     return Ok(true);
@@ -185,7 +172,11 @@ fn needs_viewer_repack(source: &Path) -> Result<bool, LoadError> {
     Ok(false)
 }
 
-fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressFn<'_>>) -> Result<(), LoadError> {
+fn pack_model_for_viewer(
+    source: &Path,
+    dest: &Path,
+    progress: Option<&ProgressFn<'_>>,
+) -> Result<(), LoadError> {
     report_progress(progress, 5);
     let (gltf, base) = open_for_pack(source)?;
     let base_ref = base.as_deref();
@@ -210,6 +201,7 @@ fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressF
         pad4(&mut bin);
     }
 
+    let original_buffer_views = root.buffer_views.clone();
     for view in root.buffer_views.iter_mut() {
         let old_buf = view.buffer.value() as usize;
         let base_off = buffer_offsets.get(old_buf).copied().unwrap_or(0);
@@ -231,7 +223,7 @@ fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressF
     for (n, &i) in embed_indices.iter().enumerate() {
         let image = &root.images[i];
         let mime = image_mime(image);
-        let encoded = read_encoded_image(image, &root.buffer_views, &buffers, base_ref, source)?;
+        let encoded = read_encoded_image(image, &original_buffer_views, &buffers, source)?;
         let rgba = decode_rgba(&encoded, mime.as_deref(), source)?;
         let png = encode_rgba_png(&rgba, source)?;
         report_progress(progress, 12 + (((n + 1) * 73) / total) as u8);
@@ -315,24 +307,6 @@ fn pack_model_for_viewer(source: &Path, dest: &Path, progress: Option<&ProgressF
     Ok(())
 }
 
-fn cache_key(source: &Path) -> Result<String, LoadError> {
-    let meta = std::fs::metadata(source).map_err(|e| LoadError::Io {
-        path: source.to_path_buf(),
-        message: e.to_string(),
-    })?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let stem = source
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("model");
-    Ok(format!("{stem}-{mtime}"))
-}
-
 fn pack_to_cache(source: &Path, progress: Option<&ProgressFn<'_>>) -> Result<PathBuf, LoadError> {
     let cache_dir = crate::viewer_cache_dir();
     std::fs::create_dir_all(&cache_dir).map_err(|e| LoadError::Io {
@@ -340,19 +314,13 @@ fn pack_to_cache(source: &Path, progress: Option<&ProgressFn<'_>>) -> Result<Pat
         message: e.to_string(),
     })?;
 
-    let key = cache_key(source)?;
+    let key = cache::cache_key(source, "packed-v2")?;
     let dest = cache_dir.join(format!("{key}.glb"));
 
-    let needs_pack = match (std::fs::metadata(&dest), std::fs::metadata(source)) {
-        (Ok(cached), Ok(src)) => match (cached.modified(), src.modified()) {
-            (Ok(c), Ok(s)) => c < s,
-            _ => true,
-        },
-        _ => true,
-    };
+    let needs_pack = !cache::valid_glb(&dest);
 
     if needs_pack {
-        pack_model_for_viewer(source, &dest, progress)?;
+        cache::write_atomic(&dest, |temp| pack_model_for_viewer(source, temp, progress))?;
     } else {
         report_progress(progress, 100);
     }
@@ -366,12 +334,10 @@ pub fn resolve_viewer_model(
     progress: Option<&ProgressFn<'_>>,
 ) -> Result<PathBuf, LoadError> {
     report_progress(progress, 0);
-    let source = source
-        .canonicalize()
-        .map_err(|e| LoadError::Io {
-            path: source.to_path_buf(),
-            message: e.to_string(),
-        })?;
+    let source = source.canonicalize().map_err(|e| LoadError::Io {
+        path: source.to_path_buf(),
+        message: e.to_string(),
+    })?;
 
     let ext = source
         .extension()
@@ -381,6 +347,10 @@ pub fn resolve_viewer_model(
 
     match ext.as_str() {
         "gltf" => {
+            if gltf_skips_rust_repack(&source)? {
+                report_progress(progress, 100);
+                return Ok(source);
+            }
             let stats = inspect_gltf_file(&source)?;
             if needs_preview_optimize(&stats) {
                 return maybe_optimize_preview(&source, &stats, progress);
@@ -388,6 +358,10 @@ pub fn resolve_viewer_model(
             pack_to_cache(&source, progress)
         }
         "glb" => {
+            if gltf_skips_rust_repack(&source)? {
+                report_progress(progress, 100);
+                return Ok(source);
+            }
             let stats = inspect_gltf_quick(&source)?;
             if needs_preview_optimize(&stats) {
                 return maybe_optimize_preview(&source, &stats, progress);
@@ -399,6 +373,8 @@ pub fn resolve_viewer_model(
                 Ok(source)
             }
         }
+        "obj" => import_obj_to_cache(&source, progress),
+        "stl" => import_stl_to_cache(&source, progress),
         _ => Err(LoadError::UnsupportedFormat(ext)),
     }
 }

@@ -17,6 +17,7 @@ import {
   revealModelInFolder,
   resolveViewerModelPath,
   saveCutoutDialog,
+  exportModelDialog,
   onLoadProgress,
   onPackProgress,
   onUpdateDownloadProgress,
@@ -42,10 +43,16 @@ import {
   formatModelFormat,
   rgbaCss,
 } from "./format";
-import { CutoutExportError } from "./cutout-export";
+import { CutoutExportError, DEFAULT_CUTOUT_OPTIONS } from "./cutout-export";
 import { CutoutFrameGuide } from "./cutout-frame-guide";
 import { CutoutPreviewPanel } from "./cutout-preview-panel";
 import {
+  loadCutoutUserOptions,
+  saveCutoutUserOptions,
+  type CutoutUserOptions,
+} from "./cutout-options";
+import {
+  copyPngToClipboard,
   ensurePngFilename,
   pngObjectUrl,
   revokePngObjectUrl,
@@ -72,6 +79,7 @@ import { invalidateSceneThemeCache } from "./scene-theme";
 import { delay, flushUi } from "./ui";
 import { SceneOptionsStore, type SceneGuideOptions } from "./scene-options";
 import { UpdatePreferencesStore } from "./update-preferences";
+import type { ColorPreset } from "./model-appearance";
 import { ModelViewport, type SavedCamera } from "./viewer";
 import { measureViewportInsets } from "./viewport-framing";
 
@@ -173,9 +181,12 @@ export class App {
   private cutoutMode = false;
   private cutoutPanelsSnapshot: { explorer: boolean; inspector: boolean } | null = null;
   private cutoutExporting = false;
+  private cutoutExportToken = 0;
+  private modelExporting = false;
   private cutoutPreviewOpen = false;
   private cutoutPendingBytes: Uint8Array | null = null;
   private cutoutPreviewUrl: string | null = null;
+  private cutoutUserOptions: CutoutUserOptions = loadCutoutUserOptions();
   private sceneGuidesSyncedForReady = false;
   private cutoutFrameGuideShown = false;
   private readonly shortcuts = new ShortcutStore();
@@ -220,6 +231,10 @@ export class App {
       cutoutRunBar: pick("[data-bind=cutout-run-bar]"),
       cutoutRunBtn: pick("[data-action=run-cutout-export]"),
       cutoutRunLabel: pick("[data-bind=cutout-run-label]"),
+      cutoutMaxEdge: pick("[data-bind=cutout-max-edge]"),
+      cutoutSupersampling: pick("[data-bind=cutout-supersampling]"),
+      cutoutSizeLabel: pick("[data-bind=cutout-size-label]"),
+      cutoutSupersamplingLabel: pick("[data-bind=cutout-supersampling-label]"),
       toolCinema: pick("[data-action=cinema-mode]"),
       toolPreviewGrid: pick("[data-action=toggle-preview-grid]"),
       toolSceneGuides: pick("[data-action=toggle-scene-guides]"),
@@ -274,6 +289,7 @@ export class App {
       cutoutPreviewReset: pick("[data-action=cutout-preview-reset]"),
       cutoutPreviewCancel: pick("[data-action=cutout-preview-cancel]"),
       cutoutPreviewContinue: pick("[data-action=cutout-preview-continue]"),
+      cutoutPreviewCopy: pick("[data-action=cutout-preview-copy]"),
       aboutLabel: pick("[data-bind=about-label]"),
       aboutName: pick("[data-bind=about-name]"),
       aboutVersion: pick("[data-bind=about-version]"),
@@ -317,6 +333,7 @@ export class App {
     this.viewport = new ModelViewport(this.els.viewportHost);
     this.cutoutFrameGuide = new CutoutFrameGuide(this.els.viewportHost, {
       getModelViewer: () => (this.phase === "ready" ? this.viewport.element : null),
+      getMaxLongEdge: () => this.cutoutUserOptions.maxLongEdge,
     });
     this.cutoutFrameGuide.bind();
     this.cutoutPreviewPanel = new CutoutPreviewPanel({
@@ -502,6 +519,9 @@ export class App {
       case "report-issue":
         void this.openIssueTracker();
         break;
+      case "export-model":
+        void this.exportActiveModel();
+        break;
       default:
         break;
     }
@@ -606,6 +626,21 @@ export class App {
       void this.beginCutoutExport();
       this.viewport.focus();
     });
+    this.els.cutoutMaxEdge.addEventListener("change", () => {
+      const select = this.els.cutoutMaxEdge as HTMLSelectElement;
+      const value = select.value === "4096" ? 4096 : 2048;
+      this.cutoutUserOptions = { ...this.cutoutUserOptions, maxLongEdge: value };
+      saveCutoutUserOptions(this.cutoutUserOptions);
+      this.cutoutFrameGuide.scheduleUpdate(0);
+    });
+    this.els.cutoutSupersampling.addEventListener("change", () => {
+      const input = this.els.cutoutSupersampling as HTMLInputElement;
+      this.cutoutUserOptions = {
+        ...this.cutoutUserOptions,
+        superSampling: input.checked ? 2 : 1,
+      };
+      saveCutoutUserOptions(this.cutoutUserOptions);
+    });
 
     for (const action of ["close-cutout-flow", "cutout-preview-cancel"] as const) {
       this.shell.querySelectorAll(`[data-action=${action}]`).forEach((node) => {
@@ -614,6 +649,9 @@ export class App {
     }
     this.els.cutoutPreviewContinue.addEventListener("click", () => {
       void this.saveCutoutWithDialog();
+    });
+    this.els.cutoutPreviewCopy.addEventListener("click", () => {
+      void this.copyCutoutToClipboard();
     });
     this.els.toolCinema.addEventListener("click", () => {
       this.setCinemaMode(!this.cinemaMode);
@@ -633,14 +671,40 @@ export class App {
       this.viewport.focus();
     });
     this.els.sceneOptionsList.addEventListener("click", (e) => {
+      const reset = (e.target as HTMLElement).closest("[data-action=reset-appearance]");
+      if (reset) {
+        this.sceneOptions.set({ colorPreset: "original", modelOpacity: 1 });
+        this.applySceneOptions();
+        this.paintSceneSettings(true);
+        return;
+      }
       const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-scene-option]");
       if (!btn) return;
-      const key = btn.dataset.sceneOption as keyof SceneGuideOptions | undefined;
-      if (!key) return;
+      const key = btn.dataset.sceneOption;
+      if (key !== "previewGrid" && key !== "showGuides") return;
       this.sceneOptions.toggle(key);
       this.applySceneOptions();
       if (this.settingsOpen) this.syncSceneSettingsUi();
       this.paint();
+    });
+    this.els.sceneOptionsList.addEventListener("change", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.dataset.appearancePreset !== undefined) {
+        const preset = (target as HTMLSelectElement).value as ColorPreset;
+        this.sceneOptions.set({ colorPreset: preset });
+        this.applySceneOptions();
+        return;
+      }
+    });
+    this.els.sceneOptionsList.addEventListener("input", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.dataset.appearanceOpacity !== undefined) {
+        const opacity = Number((target as HTMLInputElement).value) / 100;
+        this.sceneOptions.set({ modelOpacity: opacity });
+        this.applySceneOptions();
+        const output = this.els.sceneOptionsList.querySelector("[data-appearance-value]");
+        if (output) output.textContent = `${Math.round(opacity * 100)}%`;
+      }
     });
     this.els.updateSettingsList.addEventListener("click", (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-update-setting]");
@@ -926,6 +990,13 @@ export class App {
     this.els.cutoutPreviewReset.setAttribute("aria-label", this.ui.tool_reset_view);
     this.els.cutoutPreviewCancel.textContent = this.ui.cancel;
     this.els.cutoutPreviewContinue.textContent = this.ui.cutout_save_title;
+    this.els.cutoutPreviewCopy.textContent = this.ui.cutout_copy_title;
+    this.els.cutoutSizeLabel.textContent = this.ui.cutout_size_label;
+    this.els.cutoutMaxEdge.setAttribute("aria-label", this.ui.cutout_size_label);
+    this.els.cutoutSupersamplingLabel.textContent = this.ui.cutout_supersampling;
+    (this.els.cutoutMaxEdge as HTMLSelectElement).value = String(this.cutoutUserOptions.maxLongEdge);
+    (this.els.cutoutSupersampling as HTMLInputElement).checked =
+      this.cutoutUserOptions.superSampling === 2;
     for (const btn of this.shell.querySelectorAll<HTMLElement>("[data-action=close-cutout-flow]")) {
       btn.setAttribute("aria-label", this.ui.cancel);
     }
@@ -1112,6 +1183,14 @@ export class App {
         if (this.phase !== "ready") return false;
         this.setCinemaMode(!this.cinemaMode);
         return true;
+      case "cutout_copy":
+        if (!this.cutoutPreviewOpen || !this.cutoutPendingBytes) return false;
+        void this.copyCutoutToClipboard();
+        return true;
+      case "export_model":
+        if (this.phase !== "ready") return false;
+        void this.exportActiveModel();
+        return true;
       default:
         return false;
     }
@@ -1183,7 +1262,7 @@ export class App {
       { key: "previewGrid", label: this.ui.scene_preview_grid, icon: "grid_on" },
       { key: "showGuides", label: this.ui.scene_guides, icon: "open_with" },
     ];
-    this.els.sceneOptionsList.innerHTML = rows
+    this.els.sceneOptionsList.innerHTML = `${rows
       .map(({ key, label, icon }) => {
         const on = opts[key];
         return `
@@ -1207,7 +1286,31 @@ export class App {
             </span>
           </button>`;
       })
-      .join("");
+      .join("")}
+      <div class="settings-scene-appearance">
+        <label class="settings-scene-appearance-row">
+          <span class="settings-scene-row-text">${escapeHtml(this.ui.scene_appearance_preset)}</span>
+          <select class="settings-scene-select" data-appearance-preset="1">
+            <option value="original"${opts.colorPreset === "original" ? " selected" : ""}>${escapeHtml(this.ui.appearance_original)}</option>
+            <option value="clay"${opts.colorPreset === "clay" ? " selected" : ""}>${escapeHtml(this.ui.appearance_clay)}</option>
+            <option value="warm"${opts.colorPreset === "warm" ? " selected" : ""}>${escapeHtml(this.ui.appearance_warm)}</option>
+            <option value="cool"${opts.colorPreset === "cool" ? " selected" : ""}>${escapeHtml(this.ui.appearance_cool)}</option>
+          </select>
+        </label>
+        <label class="settings-scene-appearance-row">
+          <span class="settings-scene-row-text">${escapeHtml(this.ui.scene_appearance_opacity)}</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="${Math.round(opts.modelOpacity * 100)}"
+            data-appearance-opacity="1"
+          />
+          <output data-appearance-value>${Math.round(opts.modelOpacity * 100)}%</output>
+        </label>
+        <button type="button" class="btn btn-secondary" data-action="reset-appearance">${escapeHtml(this.ui.scene_appearance_reset)}</button>
+      </div>`;
   }
 
   private paintUpdateSettings(rebuild = false): void {
@@ -1446,7 +1549,15 @@ export class App {
 
   private applySceneOptions(force = false): void {
     if (this.phase !== "ready") return;
-    this.viewport.syncSceneGuides(this.sceneOptions.get(), force);
+    const opts = this.sceneOptions.get();
+    this.viewport.syncSceneGuides(
+      { previewGrid: opts.previewGrid, showGuides: opts.showGuides },
+      force,
+    );
+    this.viewport.syncModelAppearance(
+      { preset: opts.colorPreset, opacity: opts.modelOpacity },
+      force,
+    );
   }
 
   private syncSceneGuidesAfterModelReady(): void {
@@ -1496,6 +1607,9 @@ export class App {
     const active = this.cutoutMode && this.phase === "ready";
     this.shell.classList.toggle("is-cutout-mode", active);
     this.els.toolToggleCutout.classList.toggle("is-active", active);
+    (this.els.cutoutRunBtn as HTMLButtonElement).disabled = this.cutoutExporting;
+    (this.els.cutoutMaxEdge as HTMLSelectElement).disabled = this.cutoutExporting;
+    (this.els.cutoutSupersampling as HTMLInputElement).disabled = this.cutoutExporting;
     const showFrame =
       this.cutoutMode &&
       this.phase === "ready" &&
@@ -1512,6 +1626,14 @@ export class App {
     this.applySceneOptions(true);
   }
 
+  private cutoutExportOptions() {
+    return {
+      ...DEFAULT_CUTOUT_OPTIONS,
+      maxLongEdge: this.cutoutUserOptions.maxLongEdge,
+      superSampling: this.cutoutUserOptions.superSampling,
+    };
+  }
+
   private cutoutDefaultFilename(): string {
     if (!this.activePath) return "cutout.png";
     const base = this.activePath.split(/[/\\]/).pop() ?? "model";
@@ -1524,6 +1646,7 @@ export class App {
   }
 
   private closeCutoutFlow(): void {
+    this.cutoutExportToken++;
     revokePngObjectUrl(this.cutoutPreviewUrl);
     this.cutoutPreviewUrl = null;
     this.cutoutPendingBytes = null;
@@ -1550,18 +1673,29 @@ export class App {
     }
 
     this.cutoutExporting = true;
+    const token = ++this.cutoutExportToken;
+    const loadToken = this.loadToken;
     this.cutoutFrameGuideShown = false;
     this.cutoutFrameGuide.setVisible(false);
+    this.paintCutoutModeUi();
     this.showToast(this.ui.cutout_exporting);
     try {
-      const bytes = await this.viewport.exportCutout(this.sceneOptions.get());
+      await flushUi();
+      if (token !== this.cutoutExportToken || loadToken !== this.loadToken || !this.cutoutMode) return;
+      const bytes = await this.viewport.exportCutout(
+        this.sceneOptions.get(),
+        this.cutoutExportOptions(),
+      );
+      if (token !== this.cutoutExportToken || loadToken !== this.loadToken || !this.cutoutMode) return;
       revokePngObjectUrl(this.cutoutPreviewUrl);
       this.cutoutPendingBytes = bytes;
       this.cutoutPreviewUrl = pngObjectUrl(bytes);
       this.cutoutPreviewOpen = true;
       this.paintCutoutModals();
     } catch (err) {
-      this.handleCutoutExportError(err);
+      if (token === this.cutoutExportToken && loadToken === this.loadToken) {
+        this.handleCutoutExportError(err);
+      }
     } finally {
       this.cutoutExporting = false;
       this.paintCutoutModeUi();
@@ -1572,9 +1706,41 @@ export class App {
     if (err instanceof CutoutExportError) {
       if (err.code === "not_ready") this.showToast(this.ui.cutout_no_model);
       else if (err.code === "empty") this.showToast(this.ui.cutout_empty, "error");
+      else if (err.code === "too_large") this.showToast(this.ui.cutout_too_large, "error");
       else this.showToast(this.ui.cutout_failed, "error");
     } else {
       this.showToast(this.ui.cutout_failed, "error");
+    }
+  }
+
+  private async copyCutoutToClipboard(): Promise<void> {
+    if (!this.cutoutPendingBytes) return;
+    try {
+      await copyPngToClipboard(this.cutoutPendingBytes);
+      this.showToast(this.ui.cutout_copied, "success");
+    } catch {
+      this.showToast(this.ui.cutout_copy_failed, "error");
+    }
+  }
+
+  private async exportActiveModel(): Promise<void> {
+    if (this.modelExporting) return;
+    if (this.phase !== "ready" || !this.activePath) {
+      this.showToast(this.ui.cutout_no_model);
+      return;
+    }
+    const sourcePath = this.activePath;
+    const stem = sourcePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") || "model";
+    this.modelExporting = true;
+    this.showToast(this.ui.export_model_exporting);
+    try {
+      const saved = await exportModelDialog(`${stem}.glb`, sourcePath);
+      if (!saved) return;
+      this.showToast(this.ui.export_model_saved.replace("{path}", saved), "success");
+    } catch {
+      this.showToast(this.ui.export_model_failed, "error");
+    } finally {
+      this.modelExporting = false;
     }
   }
 
@@ -2459,6 +2625,7 @@ export class App {
       return;
     }
     if (kind === "missing") {
+      this.loadToken++;
       this.phase = "error";
       this.status = this.ui.error_unknown_file_type;
       this.summary = null;
@@ -2480,6 +2647,7 @@ export class App {
 
     const ext = modelExtension(path);
     if (!isModelPath(path)) {
+      this.loadToken++;
       this.phase = "error";
       this.status = unsupportedModelMessage(ext, this.ui);
       this.summary = null;
@@ -2527,6 +2695,7 @@ export class App {
       } catch {
         fileSize = this.modelFileSizeForPath(path);
       }
+      if (token !== this.loadToken) return;
       this.loadingExpectsPreview = fileSize >= PREVIEW_OPTIMIZE_BYTES;
 
       this.loadingStage = !cached && !this.loadingExpectsPreview ? "parse" : "pack";
@@ -2539,6 +2708,14 @@ export class App {
         this.paintCinemaControls();
       }
 
+      // Imported formats share a conversion cache with their metadata loader.
+      // Populate it first so opening a large OBJ/STL does not convert it twice.
+      if (!cached && (ext === "obj" || ext === "stl")) {
+        this.loadingStage = "pack";
+        viewerPath = await resolveViewerModelPath(path);
+        if (token !== this.loadToken) return;
+      }
+
       summaryPromise = cached
         ? Promise.resolve(cached)
         : loadModel(path).then((summary) => {
@@ -2549,8 +2726,11 @@ export class App {
             }
             return summary;
           });
+      // Metadata can reject before the parallel viewer conversion finishes.
+      // Keep its error observed until the awaited result below handles it.
+      void summaryPromise.catch(() => {});
 
-      viewerPath = await resolveViewerModelPath(path);
+      viewerPath ??= await resolveViewerModelPath(path);
       if (token !== this.loadToken) return;
 
       this.packProgress = 100;
@@ -2616,6 +2796,7 @@ export class App {
           /* metadata optional for error copy */
         }
       }
+      if (token !== this.loadToken) return;
       this.loadFailure = {
         path,
         viewerPath,
@@ -3031,6 +3212,9 @@ export class App {
   private inspectorHtml(ui: UiBundle, s: SceneSummary): string {
     const fmt = formatModelFormat(s.format, ui);
     const meta = [formatBytes(s.file_size, ui), fmt].join(" · ");
+    const converted = s.format === "obj" || s.format === "stl"
+      ? `<p class="detail-empty">${escapeHtml(ui.model_import_notice.replace("{format}", fmt))}</p>`
+      : "";
 
     const kv = (key: string, val: string) => `
       <div class="kv-row">
@@ -3063,6 +3247,7 @@ export class App {
       <article class="detail-content">
         <div class="detail-core">
           <p class="detail-meta">${escapeHtml(meta)}</p>
+          ${converted}
           <div class="kv-group">${stats}</div>
           <div class="detail-divider"></div>
           <section class="detail-block">
@@ -3090,7 +3275,7 @@ function dimensionRows(ui: UiBundle, s: SceneSummary): string {
       (r) => `
       <div class="kv-row">
         <span class="kv-key">${escapeHtml(r.key)}</span>
-        <span class="kv-val">${escapeHtml(formatDimension(r.val, ui.unit_meter))}</span>
+        <span class="kv-val">${escapeHtml(formatDimension(r.val, s.format === "obj" || s.format === "stl" ? ui.unit_source : ui.unit_meter))}</span>
       </div>`,
     )
     .join("");
@@ -3237,6 +3422,19 @@ const SHELL_HTML = `
   </footer>
 
   <div class="cutout-run-bar" data-bind="cutout-run-bar">
+    <div class="cutout-export-options glass-capsule">
+      <label class="cutout-export-option">
+        <span data-bind="cutout-size-label"></span>
+        <select class="cutout-export-select" data-bind="cutout-max-edge" aria-label="">
+          <option value="2048">2048 px</option>
+          <option value="4096">4096 px</option>
+        </select>
+      </label>
+      <label class="cutout-export-option cutout-export-option-check">
+        <input type="checkbox" data-bind="cutout-supersampling" checked />
+        <span data-bind="cutout-supersampling-label"></span>
+      </label>
+    </div>
     <button type="button" class="cutout-run-btn glass-capsule" data-action="run-cutout-export">
       <span class="material-symbols-outlined" aria-hidden="true">content_cut</span>
       <span data-bind="cutout-run-label"></span>
@@ -3428,6 +3626,7 @@ const SHELL_HTML = `
       </div>
       <footer class="cutout-panel-footer">
         <button type="button" class="btn btn-secondary" data-action="cutout-preview-cancel"></button>
+        <button type="button" class="btn btn-secondary" data-action="cutout-preview-copy"></button>
         <button type="button" class="btn btn-primary" data-action="cutout-preview-continue"></button>
       </footer>
       <div class="cutout-preview-resize-handle" data-bind="cutout-preview-resize" aria-hidden="true"></div>

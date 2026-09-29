@@ -1,6 +1,6 @@
 import type { UiBundle } from "./types";
 
-const MODEL_EXT = new Set(["glb", "gltf"]);
+const MODEL_EXT = new Set(["glb", "gltf", "obj", "stl"]);
 
 /** File extension from the basename (handles `foo.bar.gltf`). */
 export function modelExtension(path: string): string {

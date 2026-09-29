@@ -1,9 +1,9 @@
 //! Run meshoptimizer gltfpack to build a simplified EXT_meshopt preview GLB.
 
+use crate::cache;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
-use std::time::UNIX_EPOCH;
 
 use crate::gltf_inspect::{needs_preview_optimize, preview_simplify_ratio, GltfQuickStats};
 use crate::LoadError;
@@ -26,7 +26,7 @@ pub fn gltfpack_configured() -> bool {
     resolve_gltfpack().is_some()
 }
 
-fn resolve_gltfpack() -> Option<PathBuf> {
+pub(crate) fn resolve_gltfpack() -> Option<PathBuf> {
     if let Some(path) = GLTFPACK_PATH.get() {
         if path.is_file() {
             return Some(path.clone());
@@ -96,41 +96,6 @@ fn report_progress(progress: Option<&ProgressFn<'_>>, pct: u8) {
     }
 }
 
-fn preview_cache_key(source: &Path, stats: &GltfQuickStats) -> Result<String, LoadError> {
-    let meta = std::fs::metadata(source).map_err(|e| LoadError::Io {
-        path: source.to_path_buf(),
-        message: e.to_string(),
-    })?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let stem = source
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("model");
-    let ratio = preview_simplify_ratio(stats.file_size);
-    Ok(format!("{stem}-{mtime}-preview-{ratio:.3}"))
-}
-
-fn preview_cache_usable(cached: &Path, source: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(cached) else {
-        return false;
-    };
-    if meta.len() < 256 {
-        return false;
-    }
-    let Ok(src_meta) = std::fs::metadata(source) else {
-        return false;
-    };
-    match (meta.modified(), src_meta.modified()) {
-        (Ok(c), Ok(s)) => c >= s,
-        _ => false,
-    }
-}
-
 fn preview_failed_error(source: &Path, file_size: u64) -> LoadError {
     LoadError::Parse {
         path: source.to_path_buf(),
@@ -196,16 +161,14 @@ pub fn optimize_preview_to_cache(
         message: e.to_string(),
     })?;
 
-    let key = preview_cache_key(source, stats)?;
+    let ratio = preview_simplify_ratio(stats.file_size);
+    let key = cache::cache_key(source, &format!("preview-v2-{ratio:.3}"))?;
     let dest = cache_dir.join(format!("{key}.glb"));
 
-    let needs_run = !preview_cache_usable(&dest, source);
+    let needs_run = !cache::valid_glb(&dest);
 
     report_progress(progress, 2);
     if needs_run {
-        if dest.is_file() {
-            let _ = std::fs::remove_file(&dest);
-        }
         let ratio = preview_simplify_ratio(stats.file_size);
         tracing::info!(
             path = %source.display(),
@@ -216,7 +179,9 @@ pub fn optimize_preview_to_cache(
             "building meshopt preview with gltfpack"
         );
         report_progress(progress, 10);
-        run_gltfpack(source, &dest, ratio, stats.file_size)?;
+        cache::write_atomic(&dest, |temp| {
+            run_gltfpack(source, temp, ratio, stats.file_size)
+        })?;
         report_progress(progress, 95);
     }
     report_progress(progress, 100);

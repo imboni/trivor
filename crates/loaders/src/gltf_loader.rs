@@ -3,7 +3,9 @@ use std::path::Path;
 use glam::Vec3;
 use trivor_core::{MaterialSummary, SceneSummary};
 
-use crate::gltf_inspect::{inspect_scene_summary_light, needs_lightweight_summary};
+use crate::gltf_inspect::{
+    gltf_skips_rust_repack, inspect_scene_summary_light, needs_lightweight_summary,
+};
 use crate::LoadError;
 
 pub type ProgressFn<'a> = dyn Fn(u8) + Send + Sync + 'a;
@@ -20,16 +22,14 @@ pub fn inspect_gltf_summary(
     };
 
     report(0);
-    let path = path
-        .canonicalize()
-        .map_err(|e| LoadError::Io {
-            path: path.to_path_buf(),
-            message: e.to_string(),
-        })?;
+    let path = path.canonicalize().map_err(|e| LoadError::Io {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })?;
 
     let file_size = crate::limits::file_size(&path)?;
 
-    if needs_lightweight_summary(&path, file_size) {
+    if gltf_skips_rust_repack(&path)? || needs_lightweight_summary(&path, file_size) {
         report(40);
         let summary = inspect_scene_summary_light(&path)?;
         report(100);

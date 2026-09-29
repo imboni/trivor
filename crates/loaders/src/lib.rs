@@ -1,11 +1,16 @@
 //! Model loaders for Trivor (极视).
 
+mod asset_uri;
+mod cache;
 mod folder;
+mod gltf_export;
+mod gltf_import;
 mod gltf_inspect;
 mod gltf_loader;
 mod gltf_optimize;
 mod gltf_pack;
 mod limits;
+mod stl_glb;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -89,6 +94,7 @@ pub use gltf_optimize::{
     set_gltfpack_path,
 };
 pub use gltf_pack::resolve_viewer_model;
+pub use gltf_export::export_model_glb;
 pub use limits::{format_bytes, file_size};
 
 #[derive(Debug, Error)]
@@ -114,6 +120,7 @@ pub fn load_scene_summary(
 
     match ext.as_str() {
         "glb" | "gltf" => inspect_gltf_summary(path, progress),
+        "obj" | "stl" => gltf_import::load_imported_scene_summary(path, &ext, progress),
         other => Err(LoadError::UnsupportedFormat(other.into())),
     }
 }

@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use glam::Vec3;
+use glam::{Mat4, Quat, Vec3};
 use serde::Deserialize;
 use trivor_core::{MaterialSummary, SceneSummary};
 
@@ -33,6 +33,11 @@ pub struct GltfQuickStats {
 #[derive(Debug, Deserialize)]
 struct GltfJsonChunk {
     #[serde(default)]
+    nodes: Vec<GltfNode>,
+    #[serde(default)]
+    scenes: Vec<GltfScene>,
+    scene: Option<usize>,
+    #[serde(default)]
     meshes: Vec<GltfMesh>,
     #[serde(default)]
     accessors: Vec<GltfAccessor>,
@@ -40,6 +45,27 @@ struct GltfJsonChunk {
     buffers: Vec<GltfBuffer>,
     #[serde(default)]
     materials: Vec<GltfMaterial>,
+    #[serde(default, rename = "extensionsUsed")]
+    extensions_used: Vec<String>,
+    #[serde(default, rename = "extensionsRequired")]
+    extensions_required: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GltfNode {
+    mesh: Option<usize>,
+    #[serde(default)]
+    children: Vec<usize>,
+    matrix: Option<[f32; 16]>,
+    translation: Option<[f32; 3]>,
+    rotation: Option<[f32; 4]>,
+    scale: Option<[f32; 3]>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GltfScene {
+    #[serde(default)]
+    nodes: Vec<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +76,7 @@ struct GltfMesh {
 
 #[derive(Debug, Deserialize)]
 struct GltfPrimitive {
+    mode: Option<u32>,
     attributes: Option<GltfAttributes>,
     indices: Option<usize>,
 }
@@ -62,10 +89,12 @@ struct GltfAttributes {
 
 #[derive(Debug, Deserialize)]
 struct GltfAccessor {
+    #[serde(default, rename = "componentType")]
+    component_type: u32,
+    #[serde(default)]
+    normalized: bool,
     #[serde(default)]
     count: u64,
-    #[serde(rename = "type")]
-    accessor_type: String,
     #[serde(default)]
     min: Vec<f64>,
     #[serde(default)]
@@ -87,14 +116,26 @@ struct GltfMaterial {
     pbrMetallicRoughness: GltfPbr,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct GltfPbr {
-    #[serde(default)]
+    #[serde(default = "default_base_color")]
     baseColorFactor: [f32; 4],
 }
 
-fn read_gltf_json_bytes(path: &Path) -> Result<Vec<u8>, LoadError> {
+fn default_base_color() -> [f32; 4] {
+    [1.0; 4]
+}
+
+impl Default for GltfPbr {
+    fn default() -> Self {
+        Self {
+            baseColorFactor: default_base_color(),
+        }
+    }
+}
+
+pub(crate) fn read_gltf_json_bytes(path: &Path) -> Result<Vec<u8>, LoadError> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -116,29 +157,31 @@ fn read_gltf_json_bytes(path: &Path) -> Result<Vec<u8>, LoadError> {
         path: path.to_path_buf(),
         message: e.to_string(),
     })?;
-    if &header[0..4] != b"glTF" {
+    if &header[0..4] != b"glTF" || u32::from_le_bytes(header[4..8].try_into().unwrap()) != 2 {
         return Err(LoadError::Parse {
             path: path.to_path_buf(),
             message: "not a GLB file".into(),
         });
     }
     let mut chunk_len_buf = [0u8; 8];
-    file.read_exact(&mut chunk_len_buf).map_err(|e| LoadError::Io {
-        path: path.to_path_buf(),
-        message: e.to_string(),
-    })?;
+    file.read_exact(&mut chunk_len_buf)
+        .map_err(|e| LoadError::Io {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
     let json_len = u32::from_le_bytes(chunk_len_buf[0..4].try_into().unwrap()) as u64;
-    if json_len > 32 * 1024 * 1024 {
+    if &chunk_len_buf[4..8] != b"JSON" || json_len > 32 * 1024 * 1024 {
         return Err(LoadError::Parse {
             path: path.to_path_buf(),
             message: "GLB JSON chunk too large to inspect".into(),
         });
     }
     let mut json_bytes = vec![0u8; json_len as usize];
-    file.read_exact(&mut json_bytes).map_err(|e| LoadError::Io {
-        path: path.to_path_buf(),
-        message: e.to_string(),
-    })?;
+    file.read_exact(&mut json_bytes)
+        .map_err(|e| LoadError::Io {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
     Ok(json_bytes)
 }
 
@@ -151,34 +194,28 @@ fn parse_gltf_json(path: &Path) -> Result<GltfJsonChunk, LoadError> {
 }
 
 fn triangle_count_from_doc(doc: &GltfJsonChunk) -> u64 {
-    let mut total = 0u64;
-    for mesh in &doc.meshes {
-        for prim in &mesh.primitives {
-            if let Some(idx) = prim.indices {
-                if let Some(acc) = doc.accessors.get(idx) {
-                    total += acc.count / 3;
-                    continue;
-                }
+    doc.meshes
+        .iter()
+        .flat_map(|mesh| &mesh.primitives)
+        .map(|prim| {
+            let count = prim
+                .indices
+                .and_then(|index| doc.accessors.get(index))
+                .or_else(|| {
+                    prim.attributes
+                        .as_ref()
+                        .and_then(|attrs| attrs.POSITION)
+                        .and_then(|index| doc.accessors.get(index))
+                })
+                .map(|accessor| accessor.count)
+                .unwrap_or(0);
+            match prim.mode.unwrap_or(4) {
+                4 => count / 3,
+                5 | 6 => count.saturating_sub(2),
+                _ => 0,
             }
-            if let Some(attrs) = &prim.attributes {
-                if let Some(pos) = attrs.POSITION {
-                    if let Some(acc) = doc.accessors.get(pos) {
-                        total += acc.count / 3;
-                    }
-                }
-            }
-        }
-    }
-    if total == 0 {
-        total = doc
-            .accessors
-            .iter()
-            .filter(|a| a.accessor_type == "SCALAR")
-            .map(|a| a.count)
-            .sum::<u64>()
-            / 3;
-    }
-    total
+        })
+        .sum()
 }
 
 fn vertex_count_from_doc(doc: &GltfJsonChunk) -> u64 {
@@ -198,27 +235,98 @@ fn vertex_count_from_doc(doc: &GltfJsonChunk) -> u64 {
 }
 
 fn bounds_from_doc(doc: &GltfJsonChunk) -> (f32, f32, f32) {
-    let mut bounds_min = Vec3::splat(f32::INFINITY);
-    let mut bounds_max = Vec3::splat(f32::NEG_INFINITY);
-    let mut has_bounds = false;
-
-    for mesh in &doc.meshes {
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    let mut add_mesh = |index: usize, transform: Mat4| {
+        let Some(mesh) = doc.meshes.get(index) else {
+            return;
+        };
         for prim in &mesh.primitives {
-            let Some(attrs) = &prim.attributes else { continue };
-            let Some(pos_idx) = attrs.POSITION else { continue };
-            let Some(acc) = doc.accessors.get(pos_idx) else { continue };
-            if acc.min.len() >= 3 && acc.max.len() >= 3 {
-                let mn = Vec3::new(acc.min[0] as f32, acc.min[1] as f32, acc.min[2] as f32);
-                let mx = Vec3::new(acc.max[0] as f32, acc.max[1] as f32, acc.max[2] as f32);
-                bounds_min = bounds_min.min(mn);
-                bounds_max = bounds_max.max(mx);
-                has_bounds = true;
+            let Some(accessor) = prim
+                .attributes
+                .as_ref()
+                .and_then(|attrs| attrs.POSITION)
+                .and_then(|index| doc.accessors.get(index))
+            else {
+                continue;
+            };
+            if accessor.min.len() < 3 || accessor.max.len() < 3 {
+                continue;
+            }
+            for corner in 0..8 {
+                let axis = |index| {
+                    let value = if corner & (1 << index) == 0 {
+                        accessor.min[index] as f32
+                    } else {
+                        accessor.max[index] as f32
+                    };
+                    if !accessor.normalized {
+                        return value;
+                    }
+                    match accessor.component_type {
+                        5120 => (value / 127.0).max(-1.0),
+                        5121 => value / 255.0,
+                        5122 => (value / 32767.0).max(-1.0),
+                        5123 => value / 65535.0,
+                        _ => value,
+                    }
+                };
+                let point = transform.transform_point3(Vec3::new(axis(0), axis(1), axis(2)));
+                if point.is_finite() {
+                    min = min.min(point);
+                    max = max.max(point);
+                }
             }
         }
+    };
+    if doc.nodes.is_empty() {
+        for index in 0..doc.meshes.len() {
+            add_mesh(index, Mat4::IDENTITY);
+        }
+    } else {
+        let roots = if let Some(scene) = doc.scenes.get(doc.scene.unwrap_or(0)) {
+            scene.nodes.clone()
+        } else {
+            let children: std::collections::HashSet<usize> = doc
+                .nodes
+                .iter()
+                .flat_map(|node| node.children.iter().copied())
+                .collect();
+            (0..doc.nodes.len())
+                .filter(|index| !children.contains(index))
+                .collect()
+        };
+        let mut stack: Vec<_> = roots
+            .into_iter()
+            .map(|index| (index, Mat4::IDENTITY))
+            .collect();
+        let mut visited = std::collections::HashSet::new();
+        while let Some((index, parent)) = stack.pop() {
+            if !visited.insert(index) {
+                continue;
+            }
+            let Some(node) = doc.nodes.get(index) else {
+                continue;
+            };
+            let local = node
+                .matrix
+                .map(|m| Mat4::from_cols_array(&m))
+                .unwrap_or_else(|| {
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::from_array(node.scale.unwrap_or([1.0; 3])),
+                        Quat::from_array(node.rotation.unwrap_or([0.0, 0.0, 0.0, 1.0])),
+                        Vec3::from_array(node.translation.unwrap_or([0.0; 3])),
+                    )
+                });
+            let transform = parent * local;
+            if let Some(mesh) = node.mesh {
+                add_mesh(mesh, transform);
+            }
+            stack.extend(node.children.iter().map(|index| (*index, transform)));
+        }
     }
-
-    if has_bounds {
-        let size = bounds_max - bounds_min;
+    if min.is_finite() && max.is_finite() {
+        let size = max - min;
         (size.x, size.y, size.z)
     } else {
         (0.0, 0.0, 0.0)
@@ -227,12 +335,10 @@ fn bounds_from_doc(doc: &GltfJsonChunk) -> (f32, f32, f32) {
 
 /// Metadata for the inspector without decoding geometry buffers (large models).
 pub fn inspect_scene_summary_light(path: &Path) -> Result<SceneSummary, LoadError> {
-    let path = path
-        .canonicalize()
-        .map_err(|e| LoadError::Io {
-            path: path.to_path_buf(),
-            message: e.to_string(),
-        })?;
+    let path = path.canonicalize().map_err(|e| LoadError::Io {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })?;
     let file_size = crate::limits::file_size(&path)?;
     let doc = parse_gltf_json(&path)?;
     let (bounds_w, bounds_h, bounds_d) = bounds_from_doc(&doc);
@@ -241,10 +347,7 @@ pub fn inspect_scene_summary_light(path: &Path) -> Result<SceneSummary, LoadErro
         .iter()
         .enumerate()
         .map(|(i, m)| MaterialSummary {
-            name: m
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("material_{i}")),
+            name: m.name.clone().unwrap_or_else(|| format!("material_{i}")),
             base_color: m.pbrMetallicRoughness.baseColorFactor,
         })
         .collect();
@@ -390,9 +493,74 @@ pub fn gltf_sidecar_bytes(gltf_path: &Path) -> Result<u64, LoadError> {
     Ok(total)
 }
 
+const VIEWER_COMPRESSED_EXTENSIONS: &[&str] = &[
+    "KHR_mesh_quantization",
+    "KHR_draco_mesh_compression",
+    "EXT_meshopt_compression",
+    "KHR_texture_basisu",
+];
+
+/// Geometry/texture compression that model-viewer decodes — skip Rust repack/import decode.
+pub fn gltf_skips_rust_repack(path: &Path) -> Result<bool, LoadError> {
+    let doc = parse_gltf_json(path)?;
+    for ext in VIEWER_COMPRESSED_EXTENSIONS {
+        if doc.extensions_required.iter().any(|e| e == ext)
+            || doc.extensions_used.iter().any(|e| e == ext)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compressed_summary_handles_quantized_transforms_modes_and_default_material() {
+        let dir = crate::cache::tests::TempDir::new();
+        let source = dir.0.join("compressed.gltf");
+        let doc = serde_json::json!({
+            "asset": {"version": "2.0"},
+            "extensionsRequired": ["EXT_meshopt_compression", "KHR_mesh_quantization"],
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"children": [1], "translation": [10,20,30]}, {"mesh": 0, "scale": [0.1,0.2,0.3]}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "mode": 5}, {"attributes": {"POSITION": 0}, "mode": 1}]}],
+            "accessors": [{"count":4,"type":"VEC3","min":[0,0,0],"max":[20,30,40]}, {"count":4,"type":"SCALAR"}],
+            "materials": [{}, {"pbrMetallicRoughness": {"metallicFactor": 0.5}}]
+        });
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let summary = crate::load_scene_summary(&source, None).unwrap();
+        assert_eq!(summary.triangle_count, 2);
+        assert_eq!(
+            (summary.bounds_w, summary.bounds_h, summary.bounds_d),
+            (2.0, 6.0, 12.0)
+        );
+        assert!(summary
+            .materials
+            .iter()
+            .all(|material| material.base_color == [1.0; 4]));
+    }
+
+    #[test]
+    fn quantized_positions_apply_accessor_normalization_before_node_scale() {
+        let dir = crate::cache::tests::TempDir::new();
+        let source = dir.0.join("normalized.gltf");
+        let doc = serde_json::json!({
+            "asset": {"version": "2.0"},
+            "extensionsRequired": ["KHR_mesh_quantization"],
+            "nodes": [{"mesh": 0, "scale": [2, 3, 4]}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+            "accessors": [{"count":3,"type":"VEC3","componentType":5121,"normalized":true,"min":[0,0,0],"max":[255,255,255]}]
+        });
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let summary = crate::load_scene_summary(&source, None).unwrap();
+        assert_eq!(
+            (summary.bounds_w, summary.bounds_h, summary.bounds_d),
+            (2.0, 3.0, 4.0)
+        );
+    }
 
     #[test]
     fn preview_ratio_scales_with_size() {

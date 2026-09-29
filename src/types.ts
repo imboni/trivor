@@ -128,6 +128,20 @@ export interface UiBundle {
   settings_viewer_scene: string;
   scene_preview_grid: string;
   scene_guides: string;
+  scene_appearance_preset: string;
+  scene_appearance_opacity: string;
+  scene_appearance_reset: string;
+  appearance_original: string;
+  appearance_clay: string;
+  appearance_warm: string;
+  appearance_cool: string;
+  export_model_saved: string;
+  export_model_failed: string;
+  export_model_exporting: string;
+  export_model_title: string;
+  model_import_notice: string;
+  error_model_import: string;
+  unit_source: string;
   tool_preview_grid: string;
   tool_scene_guides: string;
   tool_export_cutout: string;
@@ -139,6 +153,12 @@ export interface UiBundle {
   cutout_empty: string;
   cutout_preview_title: string;
   cutout_save_title: string;
+  cutout_copy_title: string;
+  cutout_copied: string;
+  cutout_copy_failed: string;
+  cutout_too_large: string;
+  cutout_size_label: string;
+  cutout_supersampling: string;
 }
 
 export interface AppInfo {

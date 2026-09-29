@@ -40,6 +40,38 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>OBJ Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.imboni.trivor.obj</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>obj</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>STL Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.imboni.trivor.stl</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>stl</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>Folder</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
@@ -95,6 +127,42 @@
 				<array>
 					<string>model/gltf-binary</string>
 				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.imboni.trivor.obj</string>
+			<key>UTTypeDescription</key>
+			<string>OBJ Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array><string>obj</string></array>
+				<key>public.mime-type</key>
+				<array><string>model/obj</string></array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.imboni.trivor.stl</string>
+			<key>UTTypeDescription</key>
+			<string>STL Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array><string>stl</string></array>
+				<key>public.mime-type</key>
+				<array><string>model/stl</string></array>
 			</dict>
 		</dict>
 	</array>

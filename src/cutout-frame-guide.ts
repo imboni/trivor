@@ -1,9 +1,10 @@
 import { measureCutoutFrameBounds } from "./cutout-display-capture";
 import { DEFAULT_CUTOUT_OPTIONS } from "./cutout-export";
-import { getWebGLCanvas, type ModelViewerCaptureHost } from "./model-scene-access";
+import { type ModelViewerCaptureHost } from "./model-scene-access";
 
 export type CutoutFrameGuideDeps = {
   getModelViewer: () => ModelViewerCaptureHost | null;
+  getMaxLongEdge?: () => number;
 };
 
 export class CutoutFrameGuide {
@@ -94,32 +95,31 @@ export class CutoutFrameGuide {
         return;
       }
 
-      const canvas = getWebGLCanvas(mv);
-      if (!canvas) {
-        this.overlay.classList.add("hidden");
-        return;
-      }
-
-      const canvasRect = canvas.getBoundingClientRect();
+      const canvasRect = mv.getBoundingClientRect();
       const hostRect = this.viewportHost.getBoundingClientRect();
       if (canvasRect.width < 1 || canvasRect.height < 1) {
         this.overlay.classList.add("hidden");
         return;
       }
 
-      const scaleX = canvasRect.width / canvas.width;
-      const scaleY = canvasRect.height / canvas.height;
-      const pad = DEFAULT_CUTOUT_OPTIONS.paddingPx;
+      const scaleX = canvasRect.width / bounds.frameWidth;
+      const scaleY = canvasRect.height / bounds.frameHeight;
+      const silhouetteWidth = (bounds.maxX - bounds.minX + 1) * scaleX;
+      const silhouetteHeight = (bounds.maxY - bounds.minY + 1) * scaleY;
+      const outputEdge = this.deps.getMaxLongEdge?.() ?? DEFAULT_CUTOUT_OPTIONS.maxLongEdge;
+      const pad = DEFAULT_CUTOUT_OPTIONS.paddingPx *
+        Math.max(silhouetteWidth, silhouetteHeight) /
+        (outputEdge - DEFAULT_CUTOUT_OPTIONS.paddingPx * 2);
 
       const left = canvasRect.left - hostRect.left + bounds.minX * scaleX - pad;
       const top = canvasRect.top - hostRect.top + bounds.minY * scaleY - pad;
-      const width = (bounds.maxX - bounds.minX + 1) * scaleX + pad * 2;
-      const height = (bounds.maxY - bounds.minY + 1) * scaleY + pad * 2;
+      const width = silhouetteWidth + pad * 2;
+      const height = silhouetteHeight + pad * 2;
 
       this.overlay.style.left = `${Math.max(0, left)}px`;
       this.overlay.style.top = `${Math.max(0, top)}px`;
-      this.overlay.style.width = `${Math.max(1, width)}px`;
-      this.overlay.style.height = `${Math.max(1, height)}px`;
+      this.overlay.style.width = `${Math.max(1, Math.min(hostRect.width, left + width) - Math.max(0, left))}px`;
+      this.overlay.style.height = `${Math.max(1, Math.min(hostRect.height, top + height) - Math.max(0, top))}px`;
       this.overlay.classList.remove("hidden");
     } catch {
       if (gen === this.updateGen) this.overlay.classList.add("hidden");

@@ -45,7 +45,7 @@ export function loadModel(path: string): Promise<SceneSummary> {
   return invoke("load_model", { path });
 }
 
-/** Pack separate .gltf into cached .glb when needed; returns path for model-viewer. */
+/** Resolve a supported source to a model-viewer asset, converting or caching as needed. */
 export function resolveViewerModelPath(path: string): Promise<string> {
   return invoke("resolve_viewer_model_path", { path });
 }
@@ -106,6 +106,13 @@ export function onUpdateDownloadProgress(
 
 export function openExternalUrl(url: string): Promise<void> {
   return openUrl(url);
+}
+
+export function exportModelDialog(
+  defaultFilename: string,
+  sourcePath: string,
+): Promise<string | null> {
+  return invoke("export_model_dialog", { defaultFilename, sourcePath });
 }
 
 export function saveCutoutDialog(

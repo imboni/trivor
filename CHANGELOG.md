@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cutout export options**: choose long edge (2048 / 4096 px) and 2× supersampling before export — 抠图导出可选长边分辨率与 2× 超采样
+- **Copy cutout to clipboard** (`⌘⇧C` or preview panel button) — 抠图复制到剪贴板（快捷键与预览面板按钮）
+- **OBJ / STL import**: convert to cached GLB via gltfpack (OBJ) or native writer (STL) — 支持 OBJ/STL 导入预览
+- **Model appearance**: original / clay / warm / cool presets, live opacity and reset in Settings → Scene — 模型整体风格预设、实时透明度与一键重置
+- **Export GLB** (`⌘⇧E` or File menu): package the original asset and external resources into a self-contained GLB; appearance overrides are preview-only — 从原始资源导出完整 GLB，外观调整仅用于预览及抠图
+- **Quick Look scaffold** (`quick-look/README.md`) — 访达 Quick Look 扩展工程说明
+- **Meshopt decoder** bundled locally for compressed GLB / preview cache — 本地 meshopt 解码器，修复大模型预览渲染
+
+### Changed
+
+- Cutout export uses **offscreen high-resolution rendering** so output size no longer depends on window size — 抠图改为离屏高分辨率渲染，输出尺寸不再受窗口大小限制
+- Draco / meshopt / KTX2 assets skip Rust repack and load directly in model-viewer — 压缩 glTF 跳过 Rust 重打包，由 model-viewer 解码
+
+### Fixed
+
+- Cutout measurement queue, tiled high-resolution rendering, viewport-matching colors, 16 px output padding, and stale preview cancellation — 修复抠图死锁、离屏色彩与尺寸、留白及取消后旧预览重新出现
+- Import and preview caches now track source paths and referenced materials/textures, with atomic writes — 修复同名模型缓存冲突、侧车资源变更未失效及不完整缓存
+- Compressed model metadata respects node transforms and quantized coordinates — 压缩模型尺寸统计正确处理节点变换与量化坐标
+- OBJ/STL Finder associations and import guidance; reserved GLB export shortcut and simplified-preview notices — 补齐文件关联、转换提示及导出快捷键冲突检测，恢复简化预览提示
+
 ## [0.3.0] - 2026-06-03
 
 ### Added

@@ -1792,6 +1792,38 @@
   flex-shrink: 0;
 }
 
+.settings-scene-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 0;
+}
+
+.settings-scene-appearance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-scene-select {
+  min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.settings-scene-appearance-row input[type="range"] {
+  flex: 1;
+  max-width: 160px;
+}
+
 .settings-scene-switch {
   position: relative;
   width: 34px;
@@ -2297,6 +2329,51 @@
   color: var(--text);
   background: var(--bg-hover);
   border-color: var(--border-strong);
+}
+
+.cutout-export-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+}
+
+.cutout-export-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cutout-export-option-check {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cutout-export-option-check input {
+  accent-color: var(--accent);
+}
+
+.cutout-export-select {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 24px 4px 8px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
 }
 
 .cutout-panel-footer {

@@ -204,6 +204,10 @@ html.is-macos-overlay-titlebar .titlebar-drag {
   left: 50%;
   bottom: calc(var(--shell-pad) + var(--bottom-dock-outer-h) + 52px);
   z-index: 55;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   translate: -50% 8px;
   opacity: 0;
   visibility: hidden;
