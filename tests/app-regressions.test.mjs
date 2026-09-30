@@ -28,6 +28,8 @@ function ui(locale = "en") {
   return {
     locale,
     error_model_import: locale === "zh-Hans" ? "无法导入模型。" : "Couldn't import the model.",
+    error_model_access_cancelled: locale === "zh-Hans" ? "已取消文件夹授权。" : "Folder access was cancelled.",
+    error_model_access_denied: locale === "zh-Hans" ? "无法读取：{path}。请重新选择模型文件夹。" : "Cannot read {path}. Select the model folder again.",
     error_viewer_load: "This model could not be displayed.",
     error_preview_render_failed: "Preview failed ({size}).",
     error_large_viewer_failed: "Large model failed ({size}).",
@@ -88,6 +90,132 @@ test("OBJ conversion errors are localized for both string IPC errors and Error o
     assert.ok(large.startsWith(`${copy.error_model_import}\n\nLimits:`));
     assert.doesNotMatch(large, /IMPORT_FAILED|\{(?:stable_size|stable_tris|hard_size|hard_tris)\}/);
   }
+});
+
+test("model folder access cancellation and denied resources are localized without generic sidecar advice", () => {
+  const { resolveLoadFailureMessage, localizeBackendLoadError } = loadSource("load-failure");
+  for (const locale of ["en", "zh-Hans"]) {
+    const copy = ui(locale);
+    const path = "/模型/材质 texture.png";
+    for (const raw of ["MODEL_ASSETS_ACCESS_CANCELLED", `MODEL_ASSETS_ACCESS_DENIED:${path}`]) {
+      const expected = raw.endsWith("CANCELLED")
+        ? copy.error_model_access_cancelled
+        : copy.error_model_access_denied.replace("{path}", path);
+      assert.equal(localizeBackendLoadError(raw, copy), expected, "export error copy");
+      for (const error of [raw, new Error(raw)]) {
+        assert.equal(resolveLoadFailureMessage(copy, "/模型/分离.gltf", error, null, () => 1024), expected);
+        assert.equal(resolveLoadFailureMessage(copy, "/模型/分离.gltf", error, null, () => 250 * 1024 ** 2), expected);
+      }
+    }
+  }
+});
+
+test("parallel model commands forward one access attempt and export creates its own", async () => {
+  const calls = [];
+  const { loadModel, resolveViewerModelPath, exportModelDialog } = loadSource("bridge", {
+    crypto: { randomUUID: () => "export-attempt" },
+    require: (id) => {
+      if (id === "@tauri-apps/api/core") return {
+        invoke: async (name, args) => { calls.push({ name, ...args }); },
+      };
+      if (id === "@tauri-apps/api/event") return {};
+      if (id === "@tauri-apps/plugin-opener") return {};
+      throw new Error(`Unexpected module: ${id}`);
+    },
+  });
+  await Promise.all([
+    loadModel("/模型/分离.gltf", "open-attempt"),
+    resolveViewerModelPath("/模型/分离.gltf", "open-attempt"),
+  ]);
+  await exportModelDialog("export.glb", "/模型/分离.gltf");
+  assert.deepEqual(calls, [
+    { name: "load_model", path: "/模型/分离.gltf", accessRequestId: "open-attempt" },
+    { name: "resolve_viewer_model_path", path: "/模型/分离.gltf", accessRequestId: "open-attempt" },
+    { name: "export_model_dialog", defaultFilename: "export.glb", sourcePath: "/模型/分离.gltf", accessRequestId: "export-attempt" },
+  ]);
+});
+
+// Run the real load methods without mounting WebGL or native dialogs.
+function modelAccessApp() {
+  const filename = new URL("../src/app.ts", import.meta.url);
+  const file = ts.createSourceFile("app.ts", readFileSync(filename, "utf8"), ts.ScriptTarget.Latest, true);
+  const appClass = file.statements.find((node) => ts.isClassDeclaration(node) && node.name.text === "App");
+  const methods = appClass.members.filter((node) =>
+    ts.isMethodDeclaration(node) && ["openPath", "loadFolder"].includes(node.name.getText(file)),
+  );
+  const code = ts.transpileModule(`class App { ${methods.map((node) => node.getText(file)).join("\n")} }; exports.App = App;`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const path = "/models/separate.gltf";
+  const entry = { path, format: "gltf", file_size: 42 };
+  const fresh = { ...entry, material_count: 2 };
+  const calls = [];
+  const state = { denied: true, nextId: 0 };
+  const noop = () => {};
+  const exports = {};
+  vm.runInNewContext(code, {
+    exports, Error,
+    crypto: { randomUUID: () => `attempt-${++state.nextId}` },
+    normalizeModelPath: async (path) => path,
+    modelExtension: () => "gltf", isModelPath: () => true,
+    modelFileSize: async () => 42, flushUi: async () => {},
+    PREVIEW_OPTIMIZE_BYTES: 200 * 1024 ** 2,
+    loadModel: async (path, id) => {
+      calls.push({ operation: "metadata", id });
+      if (state.denied) throw "MODEL_ASSETS_ACCESS_CANCELLED";
+      return fresh;
+    },
+    resolveViewerModelPath: async (path, id) => {
+      calls.push({ operation: "viewer", id });
+      if (state.denied) throw "MODEL_ASSETS_ACCESS_CANCELLED";
+      return "/cache/packed.glb";
+    },
+    listModelsInFolder: async () => [entry],
+    convertFileSrc: (path) => path,
+    isPreviewCachePath: () => false,
+    resolveLoadFailureMessage: loadSource("load-failure").resolveLoadFailureMessage,
+  });
+  const app = new exports.App();
+  Object.assign(app, {
+    ui: ui(), loadToken: 0, phase: "empty", activePath: null, summary: null,
+    models: [entry], summaryCache: new Map(), cinemaMode: false,
+    paint: noop, syncLoadingProgress: noop, paintOverlay: noop,
+    syncFramingInsets: noop, saveInitialCameraForPath: noop,
+    syncSceneGuidesAfterModelReady: noop, paintCinemaControls: noop,
+    modelEntryFromPath: () => entry, tryUpsertModel: () => true,
+    largeModelLoadHint: () => null, modelFileSizeForPath: () => 42,
+    registerLibraryRoot: noop,
+    viewport: { clear: noop, load: async () => {}, focus: noop },
+  });
+  return { app, state, calls, path, fresh };
+}
+
+test("cancelled load keeps its localized error and reopening refreshes metadata with a new attempt", async () => {
+  const { app, state, calls, path, fresh } = modelAccessApp();
+  await app.openPath(path);
+  assert.equal(app.phase, "error");
+  assert.equal(app.status, app.ui.error_model_access_cancelled);
+  assert.equal(app.loadFailure.raw, "MODEL_ASSETS_ACCESS_CANCELLED");
+  assert.equal(calls[0].id, calls[1].id);
+  app.summaryCache.set(path, { ...fresh, material_count: 1 });
+  state.denied = false;
+  await app.openPath(path);
+  assert.equal(app.phase, "ready");
+  assert.equal(app.summary.material_count, 2);
+  assert.equal(app.loadFailure, null);
+  assert.equal(calls[2].id, calls[3].id);
+  assert.notEqual(calls[0].id, calls[2].id);
+});
+
+test("opening the containing folder retries its currently failed model", async () => {
+  const { app, state, path } = modelAccessApp();
+  await app.openPath(path);
+  assert.equal(app.phase, "error");
+  state.denied = false;
+  await app.loadFolder("/models");
+  assert.equal(app.phase, "ready");
+  assert.equal(app.activePath, path);
+  assert.equal(app.summary.material_count, 2);
 });
 
 function shortcuts(overrides = {}) {

@@ -48,10 +48,10 @@ interface ModelViewerElement extends HTMLElement {
 
 /** ~12% radius change per toolbar click. */
 const ZOOM_STEP = 0.88;
-/** Default is 50ms; keep low so drag / pinch zoom feels immediate. */
-const INTERPOLATION_DECAY_MS = 55;
-/** Scale forwarded wheel delta (model-viewer default zoom is aggressive in WKWebView). */
-const WHEEL_DELTA_SCALE = 0.55;
+/** A damping time constant, not a duration: 20ms reaches ~95% in 100ms. */
+const INTERPOLATION_DECAY_MS = 20;
+/** A 100px wheel delta changes distance by ~13%, independently of zoom range. */
+const WHEEL_ZOOM_PER_PIXEL = 0.0012;
 /** model-viewer attribute; default is 1. */
 const ZOOM_SENSITIVITY = "0.82";
 /** Degrees per second; model-viewer default feels fast in cinema mode. */
@@ -121,28 +121,6 @@ function thetaNearCurrent(current: number, target: number): number {
   while (t - current > Math.PI) t -= tau;
   while (t - current < -Math.PI) t += tau;
   return t;
-}
-
-function wheelInput(mv: ModelViewerElement): HTMLElement | null {
-  return mv.shadowRoot?.querySelector<HTMLElement>(".userInput") ?? null;
-}
-
-function forwardWheel(mv: ModelViewerElement, source: WheelEvent): void {
-  const input = wheelInput(mv);
-  if (!input) return;
-  input.dispatchEvent(
-    new WheelEvent("wheel", {
-      deltaY: source.deltaY * WHEEL_DELTA_SCALE,
-      deltaX: source.deltaX * WHEEL_DELTA_SCALE,
-      deltaMode: source.deltaMode,
-      clientX: source.clientX,
-      clientY: source.clientY,
-      ctrlKey: source.ctrlKey,
-      metaKey: source.metaKey,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
 }
 
 function createModelViewerElement(): ModelViewerElement {
@@ -221,19 +199,14 @@ async function prepareModelSwap(mv: ModelViewerElement): Promise<void> {
   await mv.updateComplete;
 }
 
-/** WKWebView eats wheel on the shell — forward to model-viewer's `.userInput` layer. */
+/** Handle shell and viewer wheel input once, without model-viewer's FOV/radius coupling. */
 function bindWheelZoom(target: HTMLElement, viewport: ModelViewport): void {
   const onWheel = (e: WheelEvent) => {
     const mv = viewport.element;
-    if (!mv.src) return;
+    if (!mv.src || !mv.loaded || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const input = wheelInput(mv);
-    if (input) {
-      forwardWheel(mv, e);
-    } else {
-      viewport.stepZoomFromWheel(e.deltaY);
-    }
+    viewport.stepZoomFromWheel(e.deltaY, e.deltaMode);
   };
   target.addEventListener("wheel", onWheel, { passive: false, capture: true });
 }
@@ -249,11 +222,15 @@ export class ModelViewport {
   private loadAbort?: AbortController;
   private cursorHidden = false;
   private presentationMode = false;
+  private zoomGoalRadius: number | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
     this.mv = createModelViewerElement();
     host.appendChild(this.mv);
+    // Drag, pan, pinch and model-viewer's keyboard controls establish a new pose.
+    host.addEventListener("pointerdown", () => this.clearZoomGoal(), { capture: true });
+    host.addEventListener("keydown", () => this.clearZoomGoal(), { capture: true });
   }
 
   get element(): ModelViewerElement {
@@ -349,6 +326,7 @@ export class ModelViewport {
   }
 
   async load(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<void> {
+    this.clearZoomGoal();
     await customElements.whenDefined("model-viewer");
     this.loadAbort?.abort();
     const abort = new AbortController();
@@ -437,6 +415,7 @@ export class ModelViewport {
 
   /** Drop the WebGL scene; recreating the element is reliable in WKWebView. */
   clear(): void {
+    this.clearZoomGoal();
     this.loadAbort?.abort();
     this.loadAbort = undefined;
     this.loadGen++;
@@ -447,26 +426,42 @@ export class ModelViewport {
     this.replaceViewerElement();
   }
 
-  /** Continuous zoom from wheel delta when shadow `.userInput` is unavailable. */
-  stepZoomFromWheel(deltaY: number): void {
-    const scaled = deltaY * WHEEL_DELTA_SCALE;
-    const magnitude = clamp(Math.abs(scaled) / 140, 0.35, 2.2);
-    const factor = scaled > 0 ? 0.93 ** magnitude : 1.07 ** magnitude;
-    this.stepZoom(factor);
+  /** Positive wheel delta moves away; equal opposite input restores the same distance. */
+  stepZoomFromWheel(deltaY: number, deltaMode = 0): void {
+    if (!Number.isFinite(deltaY) || deltaY === 0) return;
+    const unit = deltaMode === 1 ? 18 : deltaMode === 2 ? Math.max(1, this.host.clientHeight) : 1;
+    this.stepZoom(Math.exp(clamp(deltaY * unit * WHEEL_ZOOM_PER_PIXEL, -4, 4)));
+  }
+
+  private clearZoomGoal(): void {
+    this.zoomGoalRadius = null;
+  }
+
+  private setZoomBounds(base: number): void {
+    const min = `auto auto ${base * 0.15}m`;
+    const max = `auto auto ${base * 5}m`;
+    // model-viewer jumps to the goal when these attributes are assigned, even
+    // to the same value. Configure them once, not on every wheel event.
+    if (this.mv.getAttribute("min-camera-orbit") !== min) this.mv.setAttribute("min-camera-orbit", min);
+    if (this.mv.getAttribute("max-camera-orbit") !== max) this.mv.setAttribute("max-camera-orbit", max);
   }
 
   /** Smooth zoom in/out with a fixed relative step (toolbar buttons). */
   stepZoom(factor: number): void {
     const mv = this.mv;
-    if (!mv.src) return;
+    if (!mv.src || !mv.loaded || !Number.isFinite(factor) || factor <= 0 || factor === 1) return;
     const base = this.savedCamera?.radiusM ?? mv.getCameraOrbit().radius;
     if (!Number.isFinite(base) || base <= 0) return;
 
     const current = mv.getCameraOrbit();
     const minR = base * 0.15;
     const maxR = base * 5;
-    const radius = clamp(current.radius * factor, minR, maxR);
-    if (Math.abs(radius - current.radius) < 1e-6) return;
+    // Accumulate against the pending goal so rapid wheel events are not lost
+    // while the camera is still interpolating. Keep its clamps in sync to avoid
+    // accumulating an unreachable goal that delays reversing at a limit.
+    const radius = clamp((this.zoomGoalRadius ?? current.radius) * factor, minR, maxR);
+    this.zoomGoalRadius = radius;
+    this.setZoomBounds(base);
     mv.cameraOrbit = formatOrbit({
       theta: current.theta,
       phi: current.phi,
@@ -495,6 +490,7 @@ export class ModelViewport {
 
   /** Restore the pose captured when this model finished loading. */
   reset(): boolean {
+    this.clearZoomGoal();
     const snap = this.savedCamera;
     if (!this.mv.src || !snap) return false;
 
@@ -524,6 +520,9 @@ export class ModelViewport {
   }
 
   private async reframeToVisibleArea(mv: ModelViewerElement): Promise<void> {
+    this.clearZoomGoal();
+    mv.setAttribute("min-camera-orbit", "auto auto 8%");
+    mv.setAttribute("max-camera-orbit", "auto auto 800%");
     mv.cameraTarget = "auto auto auto";
     mv.cameraOrbit = "auto auto auto";
     mv.fieldOfView = "auto";
@@ -531,6 +530,7 @@ export class ModelViewport {
     await mv.updateComplete;
     adjustCameraForViewportInsets(mv, this.framingInsets);
     mv.jumpCameraToGoal();
+    this.setZoomBounds(this.savedCamera?.radiusM ?? mv.getCameraOrbit().radius);
   }
 
   private applySavedCamera(): void {
@@ -602,5 +602,6 @@ export class ModelViewport {
       fieldOfViewDeg: fov,
       turntableYaw: mv.turntableRotation,
     };
+    this.setZoomBounds(orbit.radius);
   }
 }

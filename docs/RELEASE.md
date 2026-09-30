@@ -58,6 +58,28 @@ CI uses **ad-hoc signing** (`APPLE_SIGNING_IDENTITY=-`) unless the `APPLE_SIGNIN
 
 For Developer ID signing and notarization, see [Apple’s notarization guide](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution) and optional `.env` + [scripts/build-macos-release.sh](../scripts/build-macos-release.sh).
 
+The macOS `beforeBundleCommand` runs [prepare-macos-sidecar.mjs](../scripts/prepare-macos-sidecar.mjs)
+for Apple Silicon, Intel, and universal builds. It signs a copy of `gltfpack` using
+the configured signing identity and [Entitlements.sidecar.plist](../src-tauri/Entitlements.sidecar.plist),
+then includes it through `bundle.macOS.files`. The generated copy lives in the ignored
+`src-tauri/.bundle/` directory. A missing binary or failed signature stops bundling.
+For Developer ID builds, the same `APPLE_SIGNING_IDENTITY` certificate must be available
+in the build machine's keychain before the hook runs.
+
+This separate signature is necessary because Tauri CLI 2.11 applies the main app's
+entitlements to every `externalBin`. macOS therefore overrides `externalBin` with
+an empty list; other platforms keep the existing sidecar configuration. The main app
+retains its original sandbox/file/network permissions. The helper has only sandbox
+and inheritance enabled, as required by [Apple's sandbox inheritance rules](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html).
+
+After bundling, verify the final app and inspect both entitlement sets:
+
+```bash
+codesign --verify --deep --strict target/universal-apple-darwin/release/bundle/macos/Trivor.app
+codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app
+codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app/Contents/MacOS/gltfpack
+```
+
 ## Local universal build
 
 ```bash
@@ -65,6 +87,6 @@ npm ci
 npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 ```
 
-Artifacts: `src-tauri/target/universal-apple-darwin/release/bundle/`
+Artifacts: `target/universal-apple-darwin/release/bundle/`
 
-Open With handlers for `.gltf`/`.glb` and folders: [tauri.macos.conf.json](../src-tauri/tauri.macos.conf.json), [Info.plist](../src-tauri/Info.plist).
+Open With handlers for `.gltf`/`.glb`, `.obj`/`.stl` and folders: [tauri.macos.conf.json](../src-tauri/tauri.macos.conf.json), [Info.plist](../src-tauri/Info.plist).

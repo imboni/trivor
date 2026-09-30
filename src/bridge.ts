@@ -41,13 +41,13 @@ export function listModelsInFolder(dir: string): Promise<ModelListEntry[]> {
   return invoke("scan_models_folder", { dir });
 }
 
-export function loadModel(path: string): Promise<SceneSummary> {
-  return invoke("load_model", { path });
+export function loadModel(path: string, accessRequestId?: string): Promise<SceneSummary> {
+  return invoke("load_model", { path, accessRequestId });
 }
 
 /** Resolve a supported source to a model-viewer asset, converting or caching as needed. */
-export function resolveViewerModelPath(path: string): Promise<string> {
-  return invoke("resolve_viewer_model_path", { path });
+export function resolveViewerModelPath(path: string, accessRequestId?: string): Promise<string> {
+  return invoke("resolve_viewer_model_path", { path, accessRequestId });
 }
 
 export function onLoadProgress(handler: (percent: number) => void): Promise<() => void> {
@@ -112,7 +112,9 @@ export function exportModelDialog(
   defaultFilename: string,
   sourcePath: string,
 ): Promise<string | null> {
-  return invoke("export_model_dialog", { defaultFilename, sourcePath });
+  return invoke("export_model_dialog", {
+    defaultFilename, sourcePath, accessRequestId: crypto.randomUUID(),
+  });
 }
 
 export function saveCutoutDialog(

@@ -90,6 +90,7 @@ export const MAX_LIBRARY_MODELS = 100;
 const LARGE_MODEL_HINT_BYTES = 100 * 1024 * 1024;
 import {
   isPreviewCachePath,
+  localizeBackendLoadError,
   PREVIEW_OPTIMIZE_BYTES,
   resolveLoadFailureMessage,
 } from "./load-failure";
@@ -822,7 +823,9 @@ export class App {
       const selectBtn = target.closest<HTMLElement>("[data-action=select-model]");
       if (selectBtn) {
         const path = selectBtn.dataset.modelPath;
-        if (path && path !== this.activePath) void this.openPath(path);
+        if (path && (path !== this.activePath || this.phase === "error")) {
+          void this.openPath(path);
+        }
       }
     });
 
@@ -1737,8 +1740,9 @@ export class App {
       const saved = await exportModelDialog(`${stem}.glb`, sourcePath);
       if (!saved) return;
       this.showToast(this.ui.export_model_saved.replace("{path}", saved), "success");
-    } catch {
-      this.showToast(this.ui.export_model_failed, "error");
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      this.showToast(localizeBackendLoadError(raw, this.ui) ?? this.ui.export_model_failed, "error");
     } finally {
       this.modelExporting = false;
     }
@@ -2075,7 +2079,11 @@ export class App {
         previousActive &&
         this.models.some((m) => m.path === previousActive)
       ) {
-        this.paint();
+        if (this.phase === "error" && items.some((m) => m.path === previousActive)) {
+          await this.openPath(previousActive);
+        } else {
+          this.paint();
+        }
         return;
       }
 
@@ -2672,6 +2680,8 @@ export class App {
     }
 
     const token = ++this.loadToken;
+    const accessRequestId = crypto.randomUUID();
+    this.loadFailure = null;
     this.inspectorHiddenAfterError = false;
     this.activePath = path;
     this.phase = "loading";
@@ -2688,7 +2698,8 @@ export class App {
     let viewerPath: string | null = null;
     let summaryPromise: Promise<SceneSummary> | null = null;
     try {
-      const cached = this.summaryCache.get(path);
+      // Referenced resources and their sandbox access may have changed since
+      // the last load. Keep cached summaries for display, not as load results.
       let fileSize = 0;
       try {
         fileSize = await modelFileSize(path);
@@ -2698,8 +2709,8 @@ export class App {
       if (token !== this.loadToken) return;
       this.loadingExpectsPreview = fileSize >= PREVIEW_OPTIMIZE_BYTES;
 
-      this.loadingStage = !cached && !this.loadingExpectsPreview ? "parse" : "pack";
-      this.parseProgress = cached ? 100 : 0;
+      this.loadingStage = !this.loadingExpectsPreview ? "parse" : "pack";
+      this.parseProgress = 0;
       this.packProgress = 0;
       this.syncLoadingProgress();
 
@@ -2710,27 +2721,25 @@ export class App {
 
       // Imported formats share a conversion cache with their metadata loader.
       // Populate it first so opening a large OBJ/STL does not convert it twice.
-      if (!cached && (ext === "obj" || ext === "stl")) {
+      if (ext === "obj" || ext === "stl") {
         this.loadingStage = "pack";
-        viewerPath = await resolveViewerModelPath(path);
+        viewerPath = await resolveViewerModelPath(path, accessRequestId);
         if (token !== this.loadToken) return;
       }
 
-      summaryPromise = cached
-        ? Promise.resolve(cached)
-        : loadModel(path).then((summary) => {
-            this.summaryCache.set(path, summary);
-            this.parseProgress = 100;
-            if (token === this.loadToken && this.phase === "loading") {
-              this.syncLoadingProgress();
-            }
-            return summary;
-          });
+      summaryPromise = loadModel(path, accessRequestId).then((summary) => {
+        this.summaryCache.set(path, summary);
+        this.parseProgress = 100;
+        if (token === this.loadToken && this.phase === "loading") {
+          this.syncLoadingProgress();
+        }
+        return summary;
+      });
       // Metadata can reject before the parallel viewer conversion finishes.
       // Keep its error observed until the awaited result below handles it.
       void summaryPromise.catch(() => {});
 
-      viewerPath ??= await resolveViewerModelPath(path);
+      viewerPath ??= await resolveViewerModelPath(path, accessRequestId);
       if (token !== this.loadToken) return;
 
       this.packProgress = 100;
@@ -2797,10 +2806,12 @@ export class App {
         }
       }
       if (token !== this.loadToken) return;
+      const raw = err instanceof Error ? err.message : String(err);
+      if (raw.startsWith("MODEL_ASSETS_ACCESS_")) this.summaryCache.delete(path);
       this.loadFailure = {
         path,
         viewerPath,
-        raw: err instanceof Error ? err.message : String(err),
+        raw,
       };
       this.phase = "error";
       this.status = resolveLoadFailureMessage(

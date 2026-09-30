@@ -10,6 +10,7 @@ mod gltf_loader;
 mod gltf_optimize;
 mod gltf_pack;
 mod limits;
+mod model_assets;
 mod stl_glb;
 
 use std::path::{Path, PathBuf};
@@ -96,6 +97,7 @@ pub use gltf_optimize::{
 pub use gltf_pack::resolve_viewer_model;
 pub use gltf_export::export_model_glb;
 pub use limits::{format_bytes, file_size};
+pub use model_assets::ensure_model_assets_readable;
 
 #[derive(Debug, Error)]
 pub enum LoadError {
@@ -103,6 +105,8 @@ pub enum LoadError {
     UnsupportedFormat(String),
     #[error("failed to read {path}: {message}")]
     Io { path: PathBuf, message: String },
+    #[error("permission required to read {path}")]
+    PermissionDenied { path: PathBuf },
     #[error("failed to load {path}: {message}")]
     Parse { path: PathBuf, message: String },
 }

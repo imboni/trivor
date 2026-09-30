@@ -32,7 +32,12 @@ function isTechnicalViewerError(message: string): boolean {
   );
 }
 
-function localizeBackendLoadError(raw: string, ui: UiBundle): string | null {
+export function localizeBackendLoadError(raw: string, ui: UiBundle): string | null {
+  if (raw === "MODEL_ASSETS_ACCESS_CANCELLED") return ui.error_model_access_cancelled;
+  const denied = "MODEL_ASSETS_ACCESS_DENIED:";
+  if (raw.startsWith(denied)) {
+    return ui.error_model_access_denied.replace("{path}", raw.slice(denied.length));
+  }
   if (raw.startsWith("IMPORT_FAILED:")) return ui.error_model_import;
   if (raw === "GLTFPACK_SIDECAR_MISSING") {
     return ui.error_gltfpack_missing;
@@ -81,6 +86,7 @@ export function resolveLoadFailureMessage(
   const raw = err instanceof Error ? err.message : String(err);
   const backend = localizeBackendLoadError(raw, ui);
   if (backend) {
+    if (raw.startsWith("MODEL_ASSETS_ACCESS_")) return backend;
     return enrichLoadFailureMessage(ui, path, backend, fileSizeForPath);
   }
 

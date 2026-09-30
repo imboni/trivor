@@ -8,14 +8,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 use crate::asset_uri::local_asset_path;
+use crate::model_assets::io_error;
 use crate::LoadError;
 
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
-fn io_error(path: &Path, err: std::io::Error) -> LoadError {
-    LoadError::Io {
-        path: path.to_path_buf(),
-        message: err.to_string(),
+fn dependency_is_file(path: &Path) -> Result<bool, LoadError> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(error) => match io_error(path, error) {
+            error @ LoadError::PermissionDenied { .. } => Err(error),
+            _ => Ok(false),
+        },
     }
 }
 
@@ -27,22 +31,31 @@ fn obj_dependencies(source: &Path, paths: &mut BTreeSet<PathBuf>) -> Result<(), 
         if parts.next() != Some("mtllib") {
             continue;
         }
-        let rest = parts.next().unwrap_or("");
-        let rest = rest.split('#').next().unwrap_or("").trim();
+        let rest = parts.next().unwrap_or("").trim();
         let base = source.parent().unwrap_or_else(|| Path::new("."));
-        // A single library may contain spaces; otherwise OBJ permits multiple libraries.
+        // gltfpack accepts '#' in filenames. Prefer a real complete filename
+        // before interpreting '#' as an inline comment.
         let whole = base.join(rest.trim_matches('"'));
-        let libraries = if whole.is_file() {
+        let libraries = if dependency_is_file(&whole)? {
             vec![whole]
         } else {
-            rest.split_whitespace()
-                .map(|name| base.join(name.trim_matches('"')))
-                .collect()
+            let rest = rest.split('#').next().unwrap_or("").trim();
+            let whole = base.join(rest.trim_matches('"'));
+            // A single library may contain spaces; otherwise OBJ permits multiple libraries.
+            if dependency_is_file(&whole)? {
+                vec![whole]
+            } else {
+                rest.split_whitespace()
+                    .map(|name| base.join(name.trim_matches('"')))
+                    .collect()
+            }
         };
         for library in libraries {
             paths.insert(library.clone());
-            let Ok(file) = std::fs::File::open(&library) else {
-                continue;
+            let file = match std::fs::File::open(&library) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(io_error(&library, error)),
             };
             for line in BufReader::new(file).lines() {
                 let line = line.map_err(|e| io_error(&library, e))?;
@@ -53,27 +66,35 @@ fn obj_dependencies(source: &Path, paths: &mut BTreeSet<PathBuf>) -> Result<(), 
                 {
                     continue;
                 }
-                let value = parts
-                    .next()
-                    .unwrap_or("")
-                    .split('#')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                let base = library.parent().unwrap_or_else(|| Path::new("."));
+                let value = parts.next().unwrap_or("").trim();
+                let without_comment = value.split('#').next().unwrap_or("").trim();
+                let material_base = library.parent().unwrap_or_else(|| Path::new("."));
+                // gltfpack resolves texture paths relative to the OBJ. Also accept
+                // MTL-relative assets, but prefer the file gltfpack would actually load.
+                let bases = [base, material_base];
                 // Options precede the filename. Try suffixes so spaces in texture names work.
-                let mut candidates = vec![value];
-                candidates.extend(
-                    value
-                        .char_indices()
-                        .filter(|(_, c)| c.is_whitespace())
-                        .map(|(i, c)| &value[i + c.len_utf8()..]),
-                );
-                let path = candidates
-                    .iter()
-                    .map(|name| base.join(name.trim_matches('"')))
-                    .find(|p| p.is_file())
-                    .unwrap_or_else(|| base.join(value.split_whitespace().last().unwrap_or("")));
+                let mut path = None;
+                'values: for value in [value, without_comment] {
+                    let mut candidates = vec![value];
+                    candidates.extend(
+                        value
+                            .char_indices()
+                            .filter(|(_, c)| c.is_whitespace())
+                            .map(|(i, c)| &value[i + c.len_utf8()..]),
+                    );
+                    for base in bases {
+                        for candidate in &candidates {
+                            let candidate = base.join(candidate.trim_matches('"'));
+                            if dependency_is_file(&candidate)? {
+                                path = Some(candidate);
+                                break 'values;
+                            }
+                        }
+                    }
+                }
+                let path = path.unwrap_or_else(|| {
+                    base.join(without_comment.split_whitespace().last().unwrap_or(""))
+                });
                 paths.insert(path);
             }
         }
@@ -81,7 +102,7 @@ fn obj_dependencies(source: &Path, paths: &mut BTreeSet<PathBuf>) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn cache_key(source: &Path, tag: &str) -> Result<String, LoadError> {
+pub(crate) fn referenced_paths(source: &Path) -> Result<BTreeSet<PathBuf>, LoadError> {
     let source = source.canonicalize().map_err(|e| io_error(source, e))?;
     let mut paths = BTreeSet::from([source.clone()]);
     match source
@@ -109,6 +130,11 @@ pub(crate) fn cache_key(source: &Path, tag: &str) -> Result<String, LoadError> {
         }
         _ => {}
     }
+    Ok(paths)
+}
+
+pub(crate) fn cache_key(source: &Path, tag: &str) -> Result<String, LoadError> {
+    let paths = referenced_paths(source)?;
     let mut hasher = DefaultHasher::new();
     tag.hash(&mut hasher);
     for path in paths {
@@ -183,6 +209,38 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn obj_texture_cache_prefers_obj_directory_then_material_directory() {
+        let dir = TempDir::new();
+        let materials = dir.0.join("materials");
+        std::fs::create_dir(&materials).unwrap();
+        let source = dir.0.join("mesh.obj");
+        std::fs::write(&source, "mtllib materials/color.mtl\nv 0 0 0\n").unwrap();
+        std::fs::write(
+            materials.join("color.mtl"),
+            "newmtl A\nmap_Kd -s 1 1 1 color map.png\n",
+        )
+        .unwrap();
+        let texture_in_mtl_dir = materials.join("color map.png");
+        let texture_in_obj_dir = dir.0.join("color map.png");
+        let key = || cache_key(&source, "obj-v2").unwrap();
+
+        std::fs::write(&texture_in_mtl_dir, b"material-relative texture").unwrap();
+        let material_key = key();
+        std::fs::write(&texture_in_mtl_dir, b"updated material-relative texture").unwrap();
+        let updated_material_key = key();
+        assert_ne!(material_key, updated_material_key);
+
+        std::fs::write(&texture_in_obj_dir, b"OBJ-relative texture").unwrap();
+        let obj_key = key();
+        assert_ne!(updated_material_key, obj_key);
+        // The MTL-relative file is shadowed by gltfpack's OBJ-relative lookup.
+        std::fs::write(&texture_in_mtl_dir, b"unused changed texture").unwrap();
+        assert_eq!(obj_key, key());
+        std::fs::write(&texture_in_obj_dir, b"updated OBJ-relative texture").unwrap();
+        assert_ne!(obj_key, key());
     }
 
     #[test]

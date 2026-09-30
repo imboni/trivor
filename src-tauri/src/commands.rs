@@ -13,6 +13,57 @@ use crate::chrome;
 use crate::menu;
 use crate::AppState;
 
+#[cfg(target_os = "macos")]
+static MODEL_ACCESS_GATE: Mutex<crate::model_access::ModelAccessGate> =
+    Mutex::new(crate::model_access::ModelAccessGate::new());
+
+/// Runs on a blocking worker; native panels themselves must run on the main thread.
+fn ensure_model_access(
+    app: &AppHandle,
+    source: &Path,
+    request_id: Option<&str>,
+    i18n: &I18n,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
+        // Existing/direct IPC callers can omit the ID. The frontend supplies
+        // one shared ID for the metadata and viewer requests of each load.
+        let fallback = format!(
+            "native-{}",
+            NEXT_REQUEST.fetch_add(1, Ordering::Relaxed)
+        );
+        let request_id = request_id.unwrap_or(&fallback);
+        let directory = source.parent().unwrap_or(source).to_path_buf();
+        let title = i18n.t(MessageKey::ModelAssetsFolderTitle).to_owned();
+        MODEL_ACCESS_GATE.lock().map_err(|e| e.to_string())?.ensure(
+            source,
+            request_id,
+            || trivor_loaders::ensure_model_assets_readable(source),
+            || {
+                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                app.run_on_main_thread(move || {
+                    let selected = rfd::FileDialog::new()
+                        .set_title(title)
+                        .set_directory(directory)
+                        .pick_folder();
+                    let _ = tx.send(selected);
+                })
+                .map_err(|e| e.to_string())?;
+                rx.recv().map_err(|e| e.to_string())
+            },
+            |error| format_load_error(error, i18n),
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, request_id);
+        trivor_loaders::ensure_model_assets_readable(source)
+            .map_err(|error| format_load_error(error, i18n))
+    }
+}
+
 #[derive(serde::Serialize, Clone)]
 pub struct LoadProgress {
     pub percent: u8,
@@ -164,24 +215,26 @@ pub async fn export_model_dialog(
     state: State<'_, Mutex<AppState>>,
     default_filename: String,
     source_path: String,
+    access_request_id: Option<String>,
 ) -> Result<Option<String>, String> {
-    let filter = {
+    let locale = {
         let state = state.lock().expect("app state");
-        I18n::new(state.locale).t(MessageKey::GlbDialogFilter).to_string()
+        state.locale
     };
 
     async_runtime::spawn_blocking(move || {
         let source = PathBuf::from(&source_path);
-        if !source.is_file() {
-            return Err("source file missing".into());
-        }
+        let i18n = I18n::new(locale);
+        ensure_model_access(&app, &source, access_request_id.as_deref(), &i18n)?;
+        let filter = i18n.t(MessageKey::GlbDialogFilter).to_owned();
 
         let path = match save_file_on_main_thread(&app, filter, &["glb"], &default_filename)? {
             Some(path) => path,
             None => return Ok(None),
         };
 
-        trivor_loaders::export_model_glb(&source, &path).map_err(|e| e.to_string())?;
+        trivor_loaders::export_model_glb(&source, &path)
+            .map_err(|e| format_load_error(e, &i18n))?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })
     .await
@@ -202,6 +255,7 @@ pub fn scan_models_folder(
 #[tauri::command]
 pub async fn resolve_viewer_model_path(
     path: String,
+    access_request_id: Option<String>,
     window: WebviewWindow,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
@@ -209,6 +263,9 @@ pub async fn resolve_viewer_model_path(
     let window = window.clone();
     async_runtime::spawn_blocking(move || {
         let i18n = I18n::new(locale);
+        ensure_model_access(
+            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n,
+        )?;
         let progress = move |pct: u8| {
             let _ = window.emit("pack-progress", LoadProgress { percent: pct });
         };
@@ -223,6 +280,7 @@ pub async fn resolve_viewer_model_path(
 #[tauri::command]
 pub async fn load_model(
     path: String,
+    access_request_id: Option<String>,
     window: WebviewWindow,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<SceneSummary, String> {
@@ -232,6 +290,9 @@ pub async fn load_model(
     let window = window.clone();
     async_runtime::spawn_blocking(move || {
         let i18n = I18n::new(locale);
+        ensure_model_access(
+            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n,
+        )?;
         let progress = move |pct: u8| {
             let _ = window.emit("load-progress", LoadProgress { percent: pct });
         };
@@ -273,6 +334,16 @@ fn format_load_error(err: LoadError, i18n: &I18n) -> String {
             .replace("{ext}", &ext),
         LoadError::Io { message, .. } => message,
         LoadError::Parse { message, .. } => message,
+        LoadError::PermissionDenied { path } => {
+            #[cfg(target_os = "macos")]
+            {
+                format!("MODEL_ASSETS_ACCESS_DENIED:{}", path.display())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                format!("Permission denied: {}", path.display())
+            }
+        }
     }
 }
 

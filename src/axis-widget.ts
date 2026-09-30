@@ -26,6 +26,7 @@ export class AxisOrientationWidget {
   private readonly svg: SVGSVGElement;
   private rafId = 0;
   private active = false;
+  private renderedAxes: string | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -60,24 +61,42 @@ export class AxisOrientationWidget {
   private stop(): void {
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = 0;
+    this.clearDrawing();
+  }
+
+  private clearDrawing(): void {
+    if (this.renderedAxes === null) return;
     this.svg.replaceChildren();
+    this.renderedAxes = null;
   }
 
   private draw(): void {
     const mv = this.getViewer();
     if (!mv?.src || !mv.loaded) {
-      this.svg.replaceChildren();
+      this.clearDrawing();
       return;
     }
 
     const theme = readSceneTheme();
     const axes = projectModelAxes(mv, theme);
     if (!axes) {
-      this.svg.replaceChildren();
+      this.clearDrawing();
       return;
     }
 
-    const sorted = [...axes].sort((a, b) => a.depth - b.depth);
+    const sorted = axes.sort((a, b) => a.depth - b.depth).map((axis) => ({
+      id: axis.id,
+      color: axis.color,
+      x: axis.x.toFixed(2),
+      y: axis.y.toFixed(2),
+      labelX: (axis.x * 1.2).toFixed(2),
+      labelY: (axis.y * 1.2).toFixed(2),
+      opacity: (axis.depth > 0 ? theme.axisWidgetFront : theme.axisWidgetBack).toFixed(2),
+    }));
+    // Pure zoom and idle frames leave the projected axes unchanged. Compare
+    // the exact displayed values, including depth order and theme colors.
+    const renderedAxes = JSON.stringify(sorted);
+    if (renderedAxes === this.renderedAxes) return;
     const frag = document.createDocumentFragment();
 
     const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -96,29 +115,29 @@ export class AxisOrientationWidget {
     frag.appendChild(hub);
 
     for (const axis of sorted) {
-      const opacity = axis.depth > 0 ? theme.axisWidgetFront : theme.axisWidgetBack;
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", "0");
       line.setAttribute("y1", "0");
-      line.setAttribute("x2", axis.x.toFixed(2));
-      line.setAttribute("y2", axis.y.toFixed(2));
+      line.setAttribute("x2", axis.x);
+      line.setAttribute("y2", axis.y);
       line.setAttribute("stroke", axis.color);
       line.setAttribute("stroke-width", "2.4");
       line.setAttribute("stroke-linecap", "round");
-      line.setAttribute("opacity", opacity.toFixed(2));
+      line.setAttribute("opacity", axis.opacity);
       frag.appendChild(line);
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", (axis.x * 1.2).toFixed(2));
-      label.setAttribute("y", (axis.y * 1.2).toFixed(2));
+      label.setAttribute("x", axis.labelX);
+      label.setAttribute("y", axis.labelY);
       label.setAttribute("fill", axis.color);
-      label.setAttribute("opacity", opacity.toFixed(2));
+      label.setAttribute("opacity", axis.opacity);
       label.setAttribute("class", "axis-widget-label");
       label.textContent = axis.id.toUpperCase();
       frag.appendChild(label);
     }
 
     this.svg.replaceChildren(frag);
+    this.renderedAxes = renderedAxes;
   }
 }
 
@@ -129,8 +148,10 @@ function projectModelAxes(
   const modelScene = getModelScene(mv);
   if (!modelScene) return null;
 
-  modelScene.camera.updateMatrixWorld(true);
-  modelScene.target.updateMatrixWorld(true);
+  // Only these objects and their ancestors determine the orientation widget.
+  // Traversing target's descendants would update the entire model every frame.
+  modelScene.camera.updateWorldMatrix(true, false);
+  modelScene.target.updateWorldMatrix(true, false);
 
   const right = new Vector3();
   const up = new Vector3();

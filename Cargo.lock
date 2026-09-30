@@ -4519,7 +4519,7 @@ dependencies = [
 
 [[package]]
 name = "trivor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dark-light",
  "rfd",
@@ -4539,14 +4539,14 @@ dependencies = [
 
 [[package]]
 name = "trivor-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "trivor-i18n"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "sys-locale",
@@ -4555,7 +4555,7 @@ dependencies = [
 
 [[package]]
 name = "trivor-loaders"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "glam",

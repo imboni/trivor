@@ -74,13 +74,14 @@ pub fn import_obj_to_cache(
     progress: Option<&ProgressFn<'_>>,
 ) -> Result<PathBuf, LoadError> {
     report_progress(progress, 5);
+    crate::ensure_model_assets_readable(source)?;
     let cache_dir = crate::viewer_cache_dir();
     std::fs::create_dir_all(&cache_dir).map_err(|e| LoadError::Io {
         path: cache_dir.clone(),
         message: e.to_string(),
     })?;
 
-    let key = cache::cache_key(source, "imported-obj-v2")?;
+    let key = cache::cache_key(source, "imported-obj-v3")?;
     let dest = cache_dir.join(format!("{key}.glb"));
 
     if !cache::valid_glb(&dest) {

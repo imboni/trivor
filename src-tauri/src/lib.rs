@@ -3,6 +3,8 @@ mod commands;
 #[cfg(target_os = "macos")]
 mod macos_update;
 mod menu;
+#[cfg(target_os = "macos")]
+mod model_access;
 mod open_external;
 
 use std::path::PathBuf;

@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/imboni/trivor"
@@ -35,3 +35,7 @@ strip = true
 lto = true
 codegen-units = 1
 
+# macOS must load procedural-macro dylibs while compiling. Stripping these
+# build-time libraries can produce a misaligned Mach-O string table.
+[profile.release.build-override]
+strip = false

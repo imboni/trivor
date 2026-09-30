@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
 ### Added
 
 - **Cutout export options**: choose long edge (2048 / 4096 px) and 2× supersampling before export — 抠图导出可选长边分辨率与 2× 超采样
@@ -20,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Cutout export uses **offscreen high-resolution rendering** so output size no longer depends on window size — 抠图改为离屏高分辨率渲染，输出尺寸不再受窗口大小限制
-- Draco / meshopt / KTX2 assets skip Rust repack and load directly in model-viewer — 压缩 glTF 跳过 Rust 重打包，由 model-viewer 解码
+- Draco / meshopt / KTX2 assets preserve compression when prepared for model-viewer, including external glTF resources — 压缩模型预览保留压缩数据，并打包外置 glTF 资源
+- Mouse-wheel zoom uses consistent relative distance changes and shorter camera smoothing; the axis widget skips unchanged SVG updates and full-model traversal — 滚轮缩放幅度更稳定、跟手，坐标轴减少重复绘制及模型遍历
 
 ### Fixed
 
@@ -28,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Import and preview caches now track source paths and referenced materials/textures, with atomic writes — 修复同名模型缓存冲突、侧车资源变更未失效及不完整缓存
 - Compressed model metadata respects node transforms and quantized coordinates — 压缩模型尺寸统计正确处理节点变换与量化坐标
 - OBJ/STL Finder associations and import guidance; reserved GLB export shortcut and simplified-preview notices — 补齐文件关联、转换提示及导出快捷键冲突检测，恢复简化预览提示
+- Sandboxed external-resource access prompts are serialized per load attempt; cancelling and retrying the same model works, including paths with spaces, Chinese characters or `#` — 修复外部资源重复授权提示及取消后的重试，支持空格、中文和 `#` 文件名
+- GLB export preserves compressed resources, omits invalid optional fields and writes through the native save dialog's authorized path — 修复 GLB 导出的压缩资源、可选字段及沙盒保存权限
+- macOS helper signing uses sandbox inheritance; release build tools retain valid Mach-O metadata — 修复转换工具沙盒签名与 macOS 发布构建失败
+- Equal opposite wheel input restores the same distance without changing FOV; rapid input and reversal at zoom limits remain responsive — 修复滚轮反向缩放不一致、视角变化及缩放边界拖延
 
 ## [0.3.0] - 2026-06-03
 
@@ -146,7 +153,9 @@ First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发�
 - Initial Tauri 2 shell for viewing glTF and GLB models
 - Library sidebar, 3D viewport, inspector, themes, and bilingual UI
 
-[Unreleased]: https://github.com/imboni/trivor/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/imboni/trivor/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/imboni/trivor/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/imboni/trivor/releases/tag/v0.3.0
 [0.1.0]: https://github.com/imboni/trivor/releases/tag/v0.1.0
 [0.0.2]: https://github.com/imboni/trivor/releases/tag/v0.0.2
 [0.0.1]: https://github.com/imboni/trivor/releases/tag/v0.0.1

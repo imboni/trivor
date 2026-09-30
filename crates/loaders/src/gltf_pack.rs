@@ -328,6 +328,26 @@ fn pack_to_cache(source: &Path, progress: Option<&ProgressFn<'_>>) -> Result<Pat
     Ok(dest)
 }
 
+/// Embed compressed glTF sidecars without decoding or stripping their extensions.
+/// Tauri's encoded asset URL cannot serve as a base for relative buffer/image URLs.
+fn pack_compressed_to_cache(
+    source: &Path,
+    progress: Option<&ProgressFn<'_>>,
+) -> Result<PathBuf, LoadError> {
+    let key = cache::cache_key(source, "packed-compressed-v1")?;
+    let dest = crate::viewer_cache_dir().join(format!("{key}.glb"));
+    if !cache::valid_glb(&dest) {
+        report_progress(progress, 5);
+        let bytes = crate::gltf_export::pack_gltf(source)?;
+        report_progress(progress, 90);
+        cache::write_atomic(&dest, |temp| {
+            std::fs::write(temp, &bytes).map_err(|error| crate::model_assets::io_error(temp, error))
+        })?;
+    }
+    report_progress(progress, 100);
+    Ok(dest)
+}
+
 /// Path suitable for `convertFileSrc` + model-viewer (packed GLB when needed).
 pub fn resolve_viewer_model(
     source: &Path,
@@ -348,8 +368,7 @@ pub fn resolve_viewer_model(
     match ext.as_str() {
         "gltf" => {
             if gltf_skips_rust_repack(&source)? {
-                report_progress(progress, 100);
-                return Ok(source);
+                return pack_compressed_to_cache(&source, progress);
             }
             let stats = inspect_gltf_file(&source)?;
             if needs_preview_optimize(&stats) {
@@ -376,5 +395,96 @@ pub fn resolve_viewer_model(
         "obj" => import_obj_to_cache(&source, progress),
         "stl" => import_stl_to_cache(&source, progress),
         _ => Err(LoadError::UnsupportedFormat(ext)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::tests::TempDir;
+    use base64::Engine;
+    use serde_json::json;
+
+    #[test]
+    fn compressed_gltf_cache_is_independent_and_preserves_meshopt_payloads() {
+        let input = TempDir::new();
+        let isolated = TempDir::new();
+        let source = input.0.join("compressed.gltf");
+        // Actual gltfpack 1.1 meshopt payload from the native 8-vertex/12-face box.
+        let binary = base64::engine::general_purpose::STANDARD.decode(
+            "oAAAAAEz8wAA//////8AAAABPwwAAP////8AAAABAMAAAP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAgL+amRm/zczMvgDh8CAwEQAVIBYgFyUXAHaHVmd4qYZliWiYAWkAAAAAAA=="
+        ).unwrap();
+        std::fs::write(input.0.join("compressed.bin"), &binary).unwrap();
+        let doc = json!({
+            "asset":{"version":"2.0","generator":"gltfpack 1.1"},
+            "extensionsUsed":["EXT_meshopt_compression"],
+            "extensionsRequired":["EXT_meshopt_compression"],
+            "buffers":[
+                {"uri":"compressed.bin","byteLength":100},
+                {"byteLength":168,"extensions":{"EXT_meshopt_compression":{"fallback":true}}}
+            ],
+            "bufferViews":[
+                {"buffer":1,"byteOffset":0,"byteLength":96,"byteStride":12,"target":34962,"extensions":{"EXT_meshopt_compression":{"buffer":0,"byteOffset":0,"byteLength":67,"byteStride":12,"mode":"ATTRIBUTES","count":8}}},
+                {"buffer":1,"byteOffset":96,"byteLength":72,"target":34963,"extensions":{"EXT_meshopt_compression":{"buffer":0,"byteOffset":68,"byteLength":29,"byteStride":2,"mode":"TRIANGLES","count":36}}}
+            ],
+            "accessors":[
+                {"bufferView":0,"byteOffset":0,"componentType":5126,"count":8,"type":"VEC3","min":[-1,-0.600000024,-0.400000006],"max":[1,0.600000024,0.400000006]},
+                {"bufferView":1,"byteOffset":0,"componentType":5123,"count":36,"type":"SCALAR"}
+            ],
+            "materials":[{"pbrMetallicRoughness":{"baseColorFactor":[0.7,0.2,0.1,1],"metallicFactor":0,"roughnessFactor":0.7}}],
+            "meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1,"material":0}]}],
+            "nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0
+        });
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let cached = resolve_viewer_model(&source, None).unwrap();
+        assert_ne!(cached, source);
+        assert_eq!(cached.extension().unwrap(), "glb");
+        assert_eq!(resolve_viewer_model(&source, None).unwrap(), cached);
+        let copied = isolated.0.join("standalone.glb");
+        std::fs::copy(&cached, &copied).unwrap();
+        std::fs::remove_file(cached).unwrap();
+        drop(input);
+
+        let bytes = std::fs::read(&copied).unwrap();
+        let glb = Glb::from_slice(&bytes).unwrap();
+        let packed: serde_json::Value = serde_json::from_slice(&glb.json).unwrap();
+        assert!(packed["buffers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|buffer| buffer.get("uri").is_none()));
+        assert!(packed.get("images").is_none());
+        for field in [
+            "extensionsUsed",
+            "extensionsRequired",
+            "bufferViews",
+            "accessors",
+            "materials",
+            "meshes",
+            "nodes",
+        ] {
+            assert_eq!(packed[field], doc[field], "must preserve {field}");
+        }
+        assert_eq!(packed["buffers"][1], doc["buffers"][1]);
+        assert_eq!(glb.bin.unwrap().as_ref(), binary.as_slice());
+        let summary = crate::load_scene_summary(&copied, None).unwrap();
+        assert_eq!(
+            (
+                summary.vertex_count,
+                summary.triangle_count,
+                summary.mesh_count,
+                summary.material_count
+            ),
+            (8, 12, 1, 1)
+        );
+        assert!((summary.bounds_w - 2.0).abs() < 0.00001);
+        assert!((summary.bounds_h - 1.2).abs() < 0.00001);
+        assert!((summary.bounds_d - 0.8).abs() < 0.00001);
+        // Already self-contained compressed GLBs must keep their original direct path/bytes.
+        assert_eq!(
+            resolve_viewer_model(&copied, None).unwrap(),
+            copied.canonicalize().unwrap()
+        );
+        assert_eq!(std::fs::read(&copied).unwrap(), bytes);
     }
 }

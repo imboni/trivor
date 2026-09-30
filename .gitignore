@@ -13,6 +13,7 @@
 .env.*
 !.env.example
 src-tauri/Entitlements.mas.plist
+/src-tauri/.bundle/
 *.provisionprofile
 
 # Local product research & plans (not for public repo)

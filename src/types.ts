@@ -141,6 +141,8 @@ export interface UiBundle {
   export_model_title: string;
   model_import_notice: string;
   error_model_import: string;
+  error_model_access_cancelled: string;
+  error_model_access_denied: string;
   unit_source: string;
   tool_preview_grid: string;
   tool_scene_guides: string;
