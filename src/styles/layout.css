@@ -21,7 +21,8 @@ html.is-macos-overlay-titlebar .titlebar-drag {
   left: 70px;
   right: 0;
   height: var(--titlebar-inset);
-  z-index: 200;
+  /* Keep window dragging above regular chrome, but below modal controls. */
+  z-index: 95;
   cursor: default;
 }
 

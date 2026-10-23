@@ -11,38 +11,59 @@ fn viewport_background(dark: bool) -> Color {
     }
 }
 
-pub fn apply(window: &WebviewWindow, theme: Theme) {
+pub fn apply(window: &WebviewWindow, theme: Theme, follow_system: bool) {
     let dark = theme == Theme::Dark;
-    let _ = window.set_theme(if dark {
+    // On macOS this sets NSApplication.appearance. An explicit appearance also
+    // pins WKWebView's prefers-color-scheme, so System must restore inheritance.
+    let native_theme = if follow_system {
+        None
+    } else if dark {
         Some(TauriTheme::Dark)
     } else {
         Some(TauriTheme::Light)
-    });
+    };
 
     #[cfg(target_os = "macos")]
-    apply_macos(window, dark);
+    {
+        let native_window = window.clone();
+        if let Err(e) = window.run_on_main_thread(move || {
+            if let Err(e) = native_window.set_theme(native_theme) {
+                tracing::warn!(%e, "failed to apply native theme");
+            }
+            apply_macos(&native_window, dark);
+        }) {
+            tracing::warn!(%e, "failed to update native window appearance");
+        }
+    }
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = window.set_theme(native_theme);
         let _ = window.set_background_color(Some(viewport_background(dark)));
     }
 }
 
 #[cfg(target_os = "macos")]
 fn apply_macos(window: &WebviewWindow, dark: bool) {
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+    use window_vibrancy::{
+        apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+    };
 
     if let Err(e) = window.set_title_bar_style(TitleBarStyle::Overlay) {
         tracing::warn!(%e, "failed to set overlay title bar");
     }
 
-    let material = NSVisualEffectMaterial::Sidebar;
-    if let Err(e) = apply_vibrancy(
-        window,
-        material,
-        Some(NSVisualEffectState::Active),
-        None,
-    ) {
+    // window-vibrancy adds a new NSVisualEffectView on each call. Replace its
+    // existing view so switching themes cannot accumulate full-window blurs.
+    let vibrancy = clear_vibrancy(window).and_then(|_| {
+        apply_vibrancy(
+            window,
+            NSVisualEffectMaterial::Sidebar,
+            Some(NSVisualEffectState::FollowsWindowActiveState),
+            None,
+        )
+    });
+    if let Err(e) = vibrancy {
         tracing::debug!(%e, "vibrancy not applied");
     }
 

@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use crate::LoadError;
 
@@ -28,6 +29,37 @@ pub fn ensure_model_assets_readable(source: &Path) -> Result<(), LoadError> {
         File::open(&path).map_err(|error| io_error(&path, error))?;
     }
     Ok(())
+}
+
+/// The viewer's access preflight can be interrupted while scanning embedded glTF
+/// payloads. A cancelled request must release the macOS permission gate promptly.
+pub fn ensure_model_assets_readable_cancellable(
+    source: &Path,
+    cancelled: &AtomicBool,
+) -> Result<(), LoadError> {
+    crate::gltf_optimize::check_cancelled(source, cancelled)?;
+    File::open(source).map_err(|error| io_error(source, error))?;
+    let source = source
+        .canonicalize()
+        .map_err(|error| io_error(source, error))?;
+    let extension = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let paths = match extension.as_str() {
+        "glb" | "gltf" => crate::gltf_inspect::external_paths_cancellable(&source, cancelled)?,
+        "obj" | "stl" => {
+            crate::viewer_prepare::reject_large_legacy_import(&source)?;
+            crate::cache::referenced_paths(&source)?
+        }
+        _ => crate::cache::referenced_paths(&source)?,
+    };
+    for path in paths {
+        crate::gltf_optimize::check_cancelled(&source, cancelled)?;
+        File::open(&path).map_err(|error| io_error(&path, error))?;
+    }
+    crate::gltf_optimize::check_cancelled(&source, cancelled)
 }
 
 #[cfg(test)]

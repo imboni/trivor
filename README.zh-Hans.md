@@ -27,6 +27,7 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 | **检查器** | 顶点 / 三角面 / 网格 / 材质数量；包围尺寸；材质色块列表 |
 | **场景辅助** | 可选网格地面；模型中心与坐标轴（默认关闭） |
 | **抠图导出** | 从当前视角导出透明背景 PNG；全屏预览、平移缩放后通过系统对话框保存 |
+| **模型导出** | 将原模型另存为自包含 GLB 或内嵌资源的单文件 glTF |
 | **系统集成** | 原生菜单栏；访达「打开方式」；可自定义快捷键 |
 | **偏好设置** | 深色 / 浅色 / 跟随系统；英文与简体中文界面 |
 
@@ -38,7 +39,9 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 | **架构** | Apple Silicon 与 Intel（Release 提供通用二进制） |
 | **格式** | `.gltf`（JSON + 外部 `.bin` / 贴图）与 `.glb`（单文件） |
 
-> **说明：** `.gltf` 须与 sidecar 资源同目录。**≥ 200 MB** 模型会自动生成简化预览，详见 [docs/large-models.zh-Hans.md](docs/large-models.zh-Hans.md)。
+当前开发版已在 macOS 27.0.1（Apple Silicon）实测，使用 SDK 27.0 构建。详见[兼容性验证与范围](tests/README.md#macos-27-compatibility--2026-10-23)。
+
+> **说明：** `.gltf` 须与 sidecar 资源同目录。大型 GLB / glTF 先显示结构概览，再逐步细化，可随时停止；已实测约 **2 GB** 几何模型。显示为简化预览，具体预算与限制见 [大模型说明](docs/large-models.zh-Hans.md)。
 
 ## 安装
 
@@ -66,6 +69,13 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 - 悬停行可 **在访达中显示** 或 **从列表移除**。
 - 右键可 **刷新所在目录** 或 **刷新整个模型库**。
 - **清空列表** 仅清除列表记录，不删除磁盘文件。
+
+### 导出模型
+
+- **文件 → 导出 GLB…**（`⌘⇧E`）— 保存为自包含二进制模型。
+- **文件 → 导出 glTF（单文件）…** — 将缓冲区和贴图内嵌到一个 `.gltf` JSON 文件中，搬移时无需附带资源文件夹。
+- 两种导出均支持 GLB、glTF、OBJ、STL 来源，使用原模型而非简化预览；场景调色与透明度仅影响预览和抠图，不写入导出的模型。
+- 单文件 glTF 使用 base64 保存二进制资源，通常比 GLB 更大。OBJ/STL 导出保留其导入转换支持的几何与材质。
 
 ### 视口操作
 
@@ -173,6 +183,7 @@ Trivor 基于以下开源组件构建。下表列出对**运行时行为、渲�
 |------|-------------------|--------|------|
 | [Tauri](https://tauri.app/) 2 | macOS 原生壳层、IPC、打包 | MIT / Apache-2.0 | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | [@google/model-viewer](https://modelviewer.dev/) | 3D 视口 Web 组件 | Apache-2.0 | [google/model-viewer](https://github.com/google/model-viewer) |
+| [Basis Universal](https://github.com/BinomialLLC/basis_universal) | 随应用打包的离线 KTX2 纹理解码器 | Apache-2.0 | [许可证](public/decoders/basis/LICENSE) |
 | [Three.js](https://threejs.org/) | WebGL 渲染（经 model-viewer；场景网格与坐标辅助） | MIT | [mrdoob/three.js](https://github.com/mrdoob/three.js) |
 | [gltf](https://crates.io/crates/gltf)（Rust） | glTF / GLB 解析、元数据与打包 | MIT / Apache-2.0 | [gltf-rs/gltf](https://github.com/gltf-rs/gltf) |
 | [meshoptimizer / gltfpack](https://github.com/zeux/meshoptimizer) | ≥ 200 MB 模型的 meshopt 简化预览 | MIT | [zeux/meshoptimizer](https://github.com/zeux/meshoptimizer) |

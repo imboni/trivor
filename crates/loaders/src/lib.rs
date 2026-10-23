@@ -7,11 +7,15 @@ mod gltf_export;
 mod gltf_import;
 mod gltf_inspect;
 mod gltf_loader;
+mod gltf_metadata;
 mod gltf_optimize;
 mod gltf_pack;
+mod gltf_process;
+mod gltf_structure;
 mod limits;
 mod model_assets;
 mod stl_glb;
+mod viewer_prepare;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -85,6 +89,7 @@ use thiserror::Error;
 use trivor_core::SceneSummary;
 
 pub use folder::list_models_in_folder;
+pub use gltf_export::{export_model_glb, export_model_gltf};
 pub use gltf_inspect::{
     PREVIEW_OPTIMIZE_BYTES, VIEWER_HARD_MAX_BYTES, VIEWER_HARD_MAX_TRIANGLES,
     VIEWER_STABLE_MAX_BYTES, VIEWER_STABLE_MAX_TRIANGLES,
@@ -95,9 +100,10 @@ pub use gltf_optimize::{
     set_gltfpack_path,
 };
 pub use gltf_pack::resolve_viewer_model;
-pub use gltf_export::export_model_glb;
-pub use limits::{format_bytes, file_size};
-pub use model_assets::ensure_model_assets_readable;
+pub use gltf_process::shutdown_model_processes;
+pub use limits::{file_size, format_bytes};
+pub use model_assets::{ensure_model_assets_readable, ensure_model_assets_readable_cancellable};
+pub use viewer_prepare::{prepare_viewer_model, PreparedViewerModel, ViewerDetail};
 
 #[derive(Debug, Error)]
 pub enum LoadError {
@@ -124,7 +130,37 @@ pub fn load_scene_summary(
 
     match ext.as_str() {
         "glb" | "gltf" => inspect_gltf_summary(path, progress),
-        "obj" | "stl" => gltf_import::load_imported_scene_summary(path, &ext, progress),
+        "obj" | "stl" => {
+            viewer_prepare::reject_large_legacy_import(path)?;
+            gltf_import::load_imported_scene_summary(path, &ext, progress)
+        }
         other => Err(LoadError::UnsupportedFormat(other.into())),
+    }
+}
+
+/// Cancellable inspector metadata for the progressive viewer request.
+pub fn load_scene_summary_cancellable(
+    path: &Path,
+    cancelled: &std::sync::atomic::AtomicBool,
+    progress: Option<&ProgressFn<'_>>,
+) -> Result<SceneSummary, LoadError> {
+    gltf_optimize::check_cancelled(path, cancelled)?;
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gltf") || ext.eq_ignore_ascii_case("glb"))
+    {
+        if let Some(progress) = progress {
+            progress(0);
+        }
+        let summary = gltf_inspect::inspect_scene_summary_light_cancellable(path, cancelled)?;
+        gltf_optimize::check_cancelled(path, cancelled)?;
+        if let Some(progress) = progress {
+            progress(100);
+        }
+        Ok(summary)
+    } else {
+        let summary = load_scene_summary(path, progress)?;
+        gltf_optimize::check_cancelled(path, cancelled)?;
+        Ok(summary)
     }
 }

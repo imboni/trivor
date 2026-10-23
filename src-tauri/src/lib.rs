@@ -6,6 +6,7 @@ mod menu;
 #[cfg(target_os = "macos")]
 mod model_access;
 mod open_external;
+mod preparation_jobs;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -56,6 +57,8 @@ pub fn run() {
             commands::export_model_dialog,
             commands::scan_models_folder,
             commands::resolve_viewer_model_path,
+            commands::prepare_viewer_model,
+            commands::cancel_viewer_preparation,
             commands::load_model,
             commands::reveal_in_finder,
             commands::get_app_info,
@@ -77,9 +80,6 @@ pub fn run() {
             ensure_gltfpack_configured();
             set_gltfpack_dev_bundle(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
 
-            #[cfg(target_os = "macos")]
-            crate::macos_update::cleanup_stale_trivor_volumes();
-
             let window = app.get_webview_window("main").expect("main window");
 
             let icon = tauri::include_image!("icons/icon.png");
@@ -88,8 +88,9 @@ pub fn run() {
             let state = app.state::<Mutex<AppState>>();
             let guard = state.lock().expect("app state");
             let resolved = guard.theme.resolve(system_prefers_dark());
+            let follow_system = guard.theme == trivor_core::ThemePreference::System;
             drop(guard);
-            chrome::apply(&window, resolved);
+            chrome::apply(&window, resolved, follow_system);
 
             menu::install(handle)?;
 
@@ -101,6 +102,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building Trivor")
         .run(|app, event| {
+            if matches!(event, RunEvent::ExitRequested { .. }) {
+                preparation_jobs::cancel_all();
+            }
+            if matches!(event, RunEvent::Exit) {
+                preparation_jobs::shutdown();
+            }
             if let RunEvent::Opened { urls } = event {
                 for url in urls {
                     if let Ok(path) = url.to_file_path() {

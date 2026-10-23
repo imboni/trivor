@@ -54,6 +54,10 @@ gh workflow run release.yml -f version=v0.1.0
 
 ## Signing
 
+In-app updates download into the app's cache and open the validated DMG in Finder.
+The user installs it by dragging Trivor to Applications; the sandboxed app stays
+running and does not overwrite its own bundle or forcibly unmount installer volumes.
+
 CI uses **ad-hoc signing** (`APPLE_SIGNING_IDENTITY=-`) unless the `APPLE_SIGNING_IDENTITY` repository secret is set. Ad-hoc builds are not notarized; users may need **Right-click → Open** the first time.
 
 For Developer ID signing and notarization, see [Apple’s notarization guide](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution) and optional `.env` + [scripts/build-macos-release.sh](../scripts/build-macos-release.sh).

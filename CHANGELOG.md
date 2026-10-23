@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-23
+
+### Added
+
+- **Progressive large-model loading**: bounded structure, geometry and detail previews for GLB/glTF, cancellable background preparation, camera-preserving replacement and offline texture decoding — 大模型分阶段概览与细化、停止转换、保留视角及离线纹理解码
+- **Embedded glTF export**: File → Export glTF (Embedded)… saves supported models as one portable `.gltf` file with buffers and textures included — 新增「文件 → 导出 glTF（单文件）…」，将模型及贴图保存为可独立搬移的 `.gltf`
+
+### Fixed
+
+- macOS window appearance follows the system, replaces existing vibrancy instead of stacking it, and keeps modal controls above the drag region — 修复跟随系统主题、重复模糊层及弹窗顶部点击被拖动区遮挡
+- Cancelled loads and stale Fit operations cannot modify a replacement model; model preparation/export and cache clearing are coordinated, and exiting reaps conversion processes — 修复取消与视角竞态、转换/导出/清缓存并发及退出后残留转换进程
+- Sandboxed updates open the validated downloaded DMG for Finder installation and keep the app running; no silent overwrite or forced unmount of other installer volumes — 沙盒更新改为打开已校验的 DMG 供访达安装，避免安装失败直接退出或强制卸载其他安装盘
+- Compressed inputs now pass decoded geometry, texture and instance budgets; inspector metadata no longer reads GLB geometry, and obsolete preparations are cancelled — 压缩模型纳入实际资源预算，属性读取不再加载 GLB 几何，切换模型终止旧准备任务
+
+### Compatibility and limits
+
+- Verified on macOS 27.0.1 / Apple Silicon; minimum macOS 13.0 is unchanged. See [validation scope](tests/README.md#macos-27-compatibility--2026-10-23) — 已在 macOS 27.0.1 / Apple Silicon 实测，最低系统要求仍为 macOS 13.0
+- Large GLB/glTF files use simplified previews; large OBJ/STL and required-Draco optimization retain the documented limits. See [large-model budgets](docs/large-models.md) — 大模型采用简化预览，大型 OBJ/STL 及 Draco 优化限制见[大模型说明](docs/large-models.zh-Hans.md)
+
 ## [0.4.0] - 2026-09-30
 
 ### Added
@@ -153,7 +172,8 @@ First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发�
 - Initial Tauri 2 shell for viewing glTF and GLB models
 - Library sidebar, 3D viewport, inspector, themes, and bilingual UI
 
-[Unreleased]: https://github.com/imboni/trivor/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/imboni/trivor/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/imboni/trivor/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/imboni/trivor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/imboni/trivor/releases/tag/v0.3.0
 [0.1.0]: https://github.com/imboni/trivor/releases/tag/v0.1.0

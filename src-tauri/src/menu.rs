@@ -14,6 +14,7 @@ struct MenuText {
     open: String,
     open_folder: String,
     export_model: String,
+    export_model_gltf: String,
     fit: String,
     settings: String,
     check_updates: String,
@@ -39,6 +40,7 @@ fn menu_texts(app: &AppHandle) -> tauri::Result<MenuText> {
         open: s(MessageKey::MenuOpen),
         open_folder: s(MessageKey::MenuOpenFolder),
         export_model: s(MessageKey::MenuExportModel),
+        export_model_gltf: s(MessageKey::MenuExportModelGltf),
         fit: s(MessageKey::MenuFit),
         settings: s(MessageKey::Settings),
         check_updates: s(MessageKey::MenuCheckUpdates),
@@ -94,6 +96,13 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &t.export_model,
             true,
             Some("CmdOrCtrl+Shift+E"),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "export-model-gltf",
+            &t.export_model_gltf,
+            true,
+            None::<&str>,
         )?)
         .separator()
         .item(&MenuItem::with_id(

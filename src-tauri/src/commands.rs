@@ -24,6 +24,20 @@ fn ensure_model_access(
     request_id: Option<&str>,
     i18n: &I18n,
 ) -> Result<(), String> {
+    ensure_model_access_inner(app, source, request_id, i18n, None)
+}
+
+fn ensure_model_access_inner(
+    app: &AppHandle,
+    source: &Path,
+    request_id: Option<&str>,
+    i18n: &I18n,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<(), String> {
+    let probe = || match cancelled {
+        Some(flag) => trivor_loaders::ensure_model_assets_readable_cancellable(source, flag),
+        None => trivor_loaders::ensure_model_assets_readable(source),
+    };
     #[cfg(target_os = "macos")]
     {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,7 +54,7 @@ fn ensure_model_access(
         MODEL_ACCESS_GATE.lock().map_err(|e| e.to_string())?.ensure(
             source,
             request_id,
-            || trivor_loaders::ensure_model_assets_readable(source),
+            probe,
             || {
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
                 app.run_on_main_thread(move || {
@@ -59,7 +73,7 @@ fn ensure_model_access(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, request_id);
-        trivor_loaders::ensure_model_assets_readable(source)
+        probe()
             .map_err(|error| format_load_error(error, i18n))
     }
 }
@@ -67,6 +81,7 @@ fn ensure_model_access(
 #[derive(serde::Serialize, Clone)]
 pub struct LoadProgress {
     pub percent: u8,
+    pub request_id: Option<String>,
 }
 
 fn system_prefers_dark() -> bool {
@@ -132,7 +147,7 @@ pub fn set_theme(
         "light" => trivor_core::Theme::Light,
         _ => trivor_core::Theme::Dark,
     };
-    chrome::apply(&window, resolved);
+    chrome::apply(&window, resolved, pref == ThemePreference::System);
     bundle
 }
 
@@ -209,6 +224,14 @@ pub fn save_cutout_dialog(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+#[derive(Clone, Copy, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelExportFormat {
+    #[default]
+    Glb,
+    Gltf,
+}
+
 #[tauri::command]
 pub async fn export_model_dialog(
     app: AppHandle,
@@ -216,6 +239,7 @@ pub async fn export_model_dialog(
     default_filename: String,
     source_path: String,
     access_request_id: Option<String>,
+    format: Option<ModelExportFormat>,
 ) -> Result<Option<String>, String> {
     let locale = {
         let state = state.lock().expect("app state");
@@ -223,18 +247,28 @@ pub async fn export_model_dialog(
     };
 
     async_runtime::spawn_blocking(move || {
+        // Omitted by older callers, which continue to export GLB.
+        let _operation = crate::preparation_jobs::acquire_operation(None)?;
+        let format = format.unwrap_or_default();
         let source = PathBuf::from(&source_path);
         let i18n = I18n::new(locale);
         ensure_model_access(&app, &source, access_request_id.as_deref(), &i18n)?;
-        let filter = i18n.t(MessageKey::GlbDialogFilter).to_owned();
+        let (filter_key, extension) = match format {
+            ModelExportFormat::Glb => (MessageKey::GlbDialogFilter, "glb"),
+            ModelExportFormat::Gltf => (MessageKey::GltfDialogFilter, "gltf"),
+        };
+        let filter = i18n.t(filter_key).to_owned();
 
-        let path = match save_file_on_main_thread(&app, filter, &["glb"], &default_filename)? {
+        let path = match save_file_on_main_thread(&app, filter, &[extension], &default_filename)? {
             Some(path) => path,
             None => return Ok(None),
         };
 
-        trivor_loaders::export_model_glb(&source, &path)
-            .map_err(|e| format_load_error(e, &i18n))?;
+        match format {
+            ModelExportFormat::Glb => trivor_loaders::export_model_glb(&source, &path),
+            ModelExportFormat::Gltf => trivor_loaders::export_model_gltf(&source, &path),
+        }
+        .map_err(|e| format_load_error(e, &i18n))?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })
     .await
@@ -261,13 +295,15 @@ pub async fn resolve_viewer_model_path(
 ) -> Result<String, String> {
     let locale = state.lock().expect("app state").locale;
     let window = window.clone();
+    let cancelled = access_request_id.as_deref().map(crate::preparation_jobs::register);
     async_runtime::spawn_blocking(move || {
+        let _operation = crate::preparation_jobs::acquire_operation(cancelled.as_deref())?;
         let i18n = I18n::new(locale);
-        ensure_model_access(
-            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n,
+        ensure_model_access_inner(
+            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n, cancelled.as_deref(),
         )?;
         let progress = move |pct: u8| {
-            let _ = window.emit("pack-progress", LoadProgress { percent: pct });
+            let _ = window.emit("pack-progress", LoadProgress { percent: pct, request_id: access_request_id.clone() });
         };
         resolve_viewer_model(Path::new(&path), Some(&progress))
             .map(|p| p.to_string_lossy().into_owned())
@@ -277,6 +313,48 @@ pub async fn resolve_viewer_model_path(
     .map_err(|e| e.to_string())?
 }
 
+/// Prepare one bounded stage. The frontend keeps the previous stage visible while this runs.
+#[tauri::command]
+pub async fn prepare_viewer_model(
+    path: String,
+    access_request_id: String,
+    level: Option<trivor_loaders::ViewerDetail>,
+    window: WebviewWindow,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<trivor_loaders::PreparedViewerModel, String> {
+    let locale = state.lock().expect("app state").locale;
+    let cancelled = crate::preparation_jobs::register(&access_request_id);
+    async_runtime::spawn_blocking(move || {
+        let _operation = crate::preparation_jobs::acquire_operation(Some(&cancelled))?;
+        use std::sync::atomic::Ordering;
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("MODEL_PREPARATION_CANCELLED".into());
+        }
+        let i18n = I18n::new(locale);
+        ensure_model_access_inner(
+            window.app_handle(), Path::new(&path), Some(&access_request_id), &i18n, Some(&cancelled),
+        )?;
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("MODEL_PREPARATION_CANCELLED".into());
+        }
+        let progress = move |percent: u8| {
+            let _ = window.emit("pack-progress", LoadProgress {
+                percent,
+                request_id: Some(access_request_id.clone()),
+            });
+        };
+        trivor_loaders::prepare_viewer_model(Path::new(&path), level, &cancelled, Some(&progress))
+            .map_err(|e| format_load_error(e, &i18n))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn cancel_viewer_preparation(access_request_id: String) {
+    crate::preparation_jobs::cancel(&access_request_id);
+}
+
 #[tauri::command]
 pub async fn load_model(
     path: String,
@@ -284,19 +362,24 @@ pub async fn load_model(
     window: WebviewWindow,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<SceneSummary, String> {
-    let _ = window.emit("load-progress", LoadProgress { percent: 0 });
+    let _ = window.emit("load-progress", LoadProgress { percent: 0, request_id: access_request_id.clone() });
 
     let locale = state.lock().expect("app state").locale;
     let window = window.clone();
+    let cancelled = access_request_id.as_deref().map(crate::preparation_jobs::register);
     async_runtime::spawn_blocking(move || {
+        let _operation = crate::preparation_jobs::acquire_operation(cancelled.as_deref())?;
         let i18n = I18n::new(locale);
-        ensure_model_access(
-            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n,
+        ensure_model_access_inner(
+            window.app_handle(), Path::new(&path), access_request_id.as_deref(), &i18n, cancelled.as_deref(),
         )?;
         let progress = move |pct: u8| {
-            let _ = window.emit("load-progress", LoadProgress { percent: pct });
+            let _ = window.emit("load-progress", LoadProgress { percent: pct, request_id: access_request_id.clone() });
         };
-        load_scene_summary(Path::new(&path), Some(&progress))
+        match cancelled.as_deref() {
+            Some(flag) => trivor_loaders::load_scene_summary_cancellable(Path::new(&path), flag, Some(&progress)),
+            None => load_scene_summary(Path::new(&path), Some(&progress)),
+        }
             .map_err(|e| format_load_error(e, &i18n))
     })
     .await
@@ -319,7 +402,11 @@ pub struct ClearCacheResult {
 }
 
 #[tauri::command]
-pub fn clear_viewer_cache_cmd() -> Result<ClearCacheResult, String> {
+pub fn clear_viewer_cache_cmd(state: State<'_, Mutex<AppState>>) -> Result<ClearCacheResult, String> {
+    let _operation = crate::preparation_jobs::try_operation().ok_or_else(|| {
+        let locale = state.lock().expect("app state").locale;
+        I18n::new(locale).t(MessageKey::ClearCacheFailed).to_owned()
+    })?;
     clear_viewer_cache()
         .map(|bytes| ClearCacheResult {
             bytes_cleared: bytes,
@@ -693,7 +780,7 @@ pub fn install_downloaded_update(path: String, app: tauri::AppHandle) -> Result<
 
     #[cfg(target_os = "macos")]
     {
-        return crate::macos_update::install_downloaded_dmg(path, &app);
+        return crate::macos_update::open_downloaded_dmg(path, &app);
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -15,7 +15,8 @@ import {
   openExternalUrl,
   pathKind,
   revealModelInFolder,
-  resolveViewerModelPath,
+  prepareViewerModel,
+  cancelViewerPreparation,
   saveCutoutDialog,
   exportModelDialog,
   onLoadProgress,
@@ -66,7 +67,7 @@ import {
   ShortcutStore,
   type ShortcutId,
 } from "./shortcuts";
-import type { AppInfo, AppPhase, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
+import type { AppInfo, AppPhase, ModelExportFormat, ModelListEntry, ModelLoadProgress, PreparedViewerModel, SceneSummary, UiBundle, UpdateCheckResult, ViewerModelLevel } from "./types";
 import {
   initTheme,
   loadStoredThemePref,
@@ -89,7 +90,6 @@ export const MAX_LIBRARY_MODELS = 100;
 /** Advisory hint when load fails for models at or above this on-disk size. */
 const LARGE_MODEL_HINT_BYTES = 100 * 1024 * 1024;
 import {
-  isPreviewCachePath,
   localizeBackendLoadError,
   PREVIEW_OPTIMIZE_BYTES,
   resolveLoadFailureMessage,
@@ -162,6 +162,12 @@ export class App {
   private readonly summaryCache = new Map<string, SceneSummary>();
   private readonly cameraByPath = new Map<string, SavedCamera>();
   private loadToken = 0;
+  private openRequestToken = 0;
+  private activeLoadRequest: string | null = null;
+  private preparedLevel: ViewerModelLevel | null = null;
+  private refinementNext: "preview" | "detail" | null = null;
+  private refinementState: "idle" | "preparing" | "stopped" | "failed" = "idle";
+  private refinementPercent = 0;
   private sidebarItemAnimating = false;
   private libraryRefreshing = false;
   private dialogOpen = false;
@@ -223,6 +229,9 @@ export class App {
       viewportHost: pick(".viewport-host"),
       axisWidget: pick("[data-bind=axis-widget]"),
       overlay: pick("[data-bind=overlay]"),
+      refinement: pick("[data-bind=model-refinement]"),
+      refinementLabel: pick("[data-bind=model-refinement-label]"),
+      refinementStop: pick("[data-action=stop-refinement]"),
       viewportDock: pick("[data-bind=viewport-dock]"),
       toolZoomOut: pick("[data-action=zoom-out]"),
       toolZoomIn: pick("[data-action=zoom-in]"),
@@ -396,16 +405,8 @@ export class App {
     initTheme(bundle);
     watchSystemTheme(() => this.ui.theme_pref as ThemePref, () => this.onThemeResolved());
     this.applyUi();
-    await onLoadProgress((p) => {
-      if (this.phase !== "loading") return;
-      this.parseProgress = p;
-      this.syncLoadingProgress();
-    });
-    await onPackProgress((p) => {
-      if (this.phase !== "loading") return;
-      this.packProgress = p;
-      this.syncLoadingProgress();
-    });
+    await onLoadProgress((p) => this.handleModelProgress("parse", p));
+    await onPackProgress((p) => this.handleModelProgress("pack", p));
     await listen<string>("menu-action", (e) => this.onMenuAction(e.payload));
     await listen<string>("open-path", (e) => {
       void this.handleExternalOpen(e.payload);
@@ -523,12 +524,16 @@ export class App {
       case "export-model":
         void this.exportActiveModel();
         break;
+      case "export-model-gltf":
+        void this.exportActiveModel("gltf");
+        break;
       default:
         break;
     }
   }
 
   private bind(): void {
+    this.els.refinementStop.addEventListener("click", () => this.stopRefinement());
     this.els.sidebarOpenFile.addEventListener("click", () => void this.pickFile());
     this.els.sidebarOpenFolder.addEventListener("click", () => void this.pickFolder());
     this.els.settingsBtn.addEventListener("click", () => {
@@ -823,7 +828,7 @@ export class App {
       const selectBtn = target.closest<HTMLElement>("[data-action=select-model]");
       if (selectBtn) {
         const path = selectBtn.dataset.modelPath;
-        if (path && (path !== this.activePath || this.phase === "error")) {
+        if (path && (path !== this.activePath || this.phase === "error" || this.refinementState === "stopped" || this.refinementState === "failed")) {
           void this.openPath(path);
         }
       }
@@ -1497,23 +1502,26 @@ export class App {
   }
 
   private paintCacheSection(force = false): void {
+    const inUse = this.phase === "loading" || this.refinementState === "preparing";
+    if (inUse) this.cacheConfirmOpen = false;
     this.syncCacheClearPop();
     const popOpen = this.cacheConfirmOpen && this.settingsOpen;
     this.els.clearCacheBtn.classList.toggle("is-active", popOpen);
     this.els.clearCacheBtn.setAttribute("aria-expanded", popOpen ? "true" : "false");
 
-    if (!force && !this.settingsOpen) return;
     const bytes = this.viewerCacheBytes;
+    const btn = this.els.clearCacheBtn as HTMLButtonElement;
+    const disabled = inUse || this.cacheClearing || bytes === 0 || bytes === null;
+    btn.disabled = disabled;
+    (this.els.cacheClearConfirmOk as HTMLButtonElement).disabled = disabled;
+    btn.classList.toggle("is-loading", this.cacheClearing);
+
+    if (!force && !this.settingsOpen) return;
     const sizeEl = this.els.cacheSize;
     sizeEl.textContent =
       bytes === null ? "…" : bytes === 0 ? "0 B" : formatBytes(bytes, this.ui);
     sizeEl.classList.toggle("is-empty", bytes === 0);
     sizeEl.classList.toggle("is-loading", bytes === null);
-
-    const btn = this.els.clearCacheBtn as HTMLButtonElement;
-    const empty = bytes === 0;
-    btn.disabled = empty || this.cacheClearing || bytes === null;
-    btn.classList.toggle("is-loading", this.cacheClearing);
   }
 
   private async refreshViewerCacheSize(): Promise<void> {
@@ -1526,7 +1534,10 @@ export class App {
   }
 
   private async performClearCache(): Promise<void> {
-    if (this.cacheClearing) return;
+    if (this.cacheClearing || this.phase === "loading" || this.refinementState === "preparing") {
+      this.paintCacheSection();
+      return;
+    }
     this.cacheClearing = true;
     this.cacheConfirmOpen = false;
     this.paintCacheSection();
@@ -1726,7 +1737,7 @@ export class App {
     }
   }
 
-  private async exportActiveModel(): Promise<void> {
+  private async exportActiveModel(format: ModelExportFormat = "glb"): Promise<void> {
     if (this.modelExporting) return;
     if (this.phase !== "ready" || !this.activePath) {
       this.showToast(this.ui.cutout_no_model);
@@ -1737,7 +1748,7 @@ export class App {
     this.modelExporting = true;
     this.showToast(this.ui.export_model_exporting);
     try {
-      const saved = await exportModelDialog(`${stem}.glb`, sourcePath);
+      const saved = await exportModelDialog(`${stem}.${format}`, sourcePath, format);
       if (!saved) return;
       this.showToast(this.ui.export_model_saved.replace("{path}", saved), "success");
     } catch (err) {
@@ -2201,6 +2212,7 @@ export class App {
     }
 
     const index = this.models.findIndex((m) => m.path === this.activePath);
+    this.cancelModelPreparation();
     this.loadToken++;
     this.activePath = null;
     this.summary = null;
@@ -2256,6 +2268,7 @@ export class App {
 
   private dismissError(): void {
     if (this.phase !== "error") return;
+    this.cancelModelPreparation();
     this.loadFailure = null;
     this.status = "";
     this.activePath = null;
@@ -2503,24 +2516,24 @@ export class App {
     this.paintUpdateBanner();
     this.paintAboutSection();
 
-    const unlisten = await onUpdateDownloadProgress((progress) => {
-      this.updateDownloadPercent = progress.percent;
-      this.updateDownloadedBytes = progress.downloaded;
-      this.updateDownloadTotalBytes = progress.total;
-      this.paintUpdateBanner();
-      this.paintAboutSection();
-    });
-
+    let unlisten: (() => void) | undefined;
     try {
+      unlisten = await onUpdateDownloadProgress((progress) => {
+        this.updateDownloadPercent = progress.percent;
+        this.updateDownloadedBytes = progress.downloaded;
+        this.updateDownloadTotalBytes = progress.total;
+        this.paintUpdateBanner();
+        this.paintAboutSection();
+      });
       const path = await downloadUpdate(url);
-      this.showToast(this.ui.update_download_complete, "success");
       await installDownloadedUpdate(path);
+      this.showToast(this.ui.update_download_complete, "success");
       this.dismissUpdateBanner();
     } catch {
       this.showToast(this.ui.update_download_failed, "error");
       await this.openUpdateInBrowser();
     } finally {
-      unlisten();
+      unlisten?.();
       this.updateDownloadState = "idle";
       this.paintUpdateBanner();
       this.paintAboutSection();
@@ -2633,6 +2646,7 @@ export class App {
       return;
     }
     if (kind === "missing") {
+      this.cancelModelPreparation();
       this.loadToken++;
       this.phase = "error";
       this.status = this.ui.error_unknown_file_type;
@@ -2647,14 +2661,17 @@ export class App {
   }
 
   private async openPath(path: string, opts?: { addToList?: boolean }): Promise<void> {
+    const opening = ++this.openRequestToken;
     try {
       path = await normalizeModelPath(path);
     } catch {
       /* keep original */
     }
+    if (opening !== this.openRequestToken) return;
 
     const ext = modelExtension(path);
     if (!isModelPath(path)) {
+      this.cancelModelPreparation();
       this.loadToken++;
       this.phase = "error";
       this.status = unsupportedModelMessage(ext, this.ui);
@@ -2670,7 +2687,7 @@ export class App {
       if (entry && !this.tryUpsertModel(entry)) this.notifyLibraryLimit(1);
     }
 
-    if (this.activePath === path && this.phase === "ready" && this.summary) {
+    if (this.activePath === path && this.phase === "ready" && this.refinementState !== "stopped" && this.refinementState !== "failed") {
       return;
     }
 
@@ -2679,8 +2696,13 @@ export class App {
       this.persistCameraForPath(prevPath);
     }
 
+    this.cancelModelPreparation();
     const token = ++this.loadToken;
     const accessRequestId = crypto.randomUUID();
+    this.activeLoadRequest = accessRequestId;
+    this.preparedLevel = null;
+    this.refinementNext = null;
+    this.refinementState = "idle";
     this.loadFailure = null;
     this.inspectorHiddenAfterError = false;
     this.activePath = path;
@@ -2697,6 +2719,7 @@ export class App {
 
     let viewerPath: string | null = null;
     let summaryPromise: Promise<SceneSummary> | null = null;
+    let prepared: PreparedViewerModel | null = null;
     try {
       // Referenced resources and their sandbox access may have changed since
       // the last load. Keep cached summaries for display, not as load results.
@@ -2719,34 +2742,30 @@ export class App {
         this.paintCinemaControls();
       }
 
-      // Imported formats share a conversion cache with their metadata loader.
-      // Populate it first so opening a large OBJ/STL does not convert it twice.
-      if (ext === "obj" || ext === "stl") {
-        this.loadingStage = "pack";
-        viewerPath = await resolveViewerModelPath(path, accessRequestId);
-        if (token !== this.loadToken) return;
-      }
+      this.loadingStage = "pack";
+      prepared = await prepareViewerModel(path, accessRequestId);
+      if (token !== this.loadToken) return;
+      viewerPath = prepared.path;
 
       summaryPromise = loadModel(path, accessRequestId).then((summary) => {
+        if (token !== this.loadToken) return summary;
         this.summaryCache.set(path, summary);
         this.parseProgress = 100;
         if (token === this.loadToken && this.phase === "loading") {
           this.syncLoadingProgress();
         }
+        if (this.phase === "ready") {
+          this.summary = summary;
+          delete this.els.inspectorBody.dataset.contentKey;
+          this.paintInspector();
+        }
         return summary;
       });
-      // Metadata can reject before the parallel viewer conversion finishes.
-      // Keep its error observed until the awaited result below handles it.
+      // Metadata is supplementary; it must not delay an already usable preview.
       void summaryPromise.catch(() => {});
-
-      viewerPath ??= await resolveViewerModelPath(path, accessRequestId);
-      if (token !== this.loadToken) return;
 
       this.packProgress = 100;
       this.syncLoadingProgress();
-
-      const summary = await summaryPromise;
-      if (token !== this.loadToken) return;
 
       this.loadingStage = "render";
       this.loadPercent = 85;
@@ -2771,14 +2790,16 @@ export class App {
         return;
       }
 
-      this.summary = summary;
-      const entry = this.modelEntryFromPath(summary.path);
-      if (entry) {
-        entry.file_size = summary.file_size;
+      this.summary = this.summaryCache.get(path) ?? null;
+      const entry = this.modelEntryFromPath(path);
+      if (entry && this.summary) {
+        entry.file_size = this.summary.file_size;
         this.tryUpsertModel(entry);
       }
       this.saveInitialCameraForPath(path);
       this.phase = "ready";
+      this.preparedLevel = prepared.level;
+      this.refinementNext = prepared.next_level;
       this.syncSceneGuidesAfterModelReady();
       this.loadPercent = 100;
       this.paintOverlay();
@@ -2788,23 +2809,9 @@ export class App {
       }
       this.viewport.focus();
       this.paintCinemaControls();
-      if (isPreviewCachePath(viewerPath)) {
-        const notice = this.ui.large_model_preview_notice.replace(
-          "{size}",
-          formatBytes(summary.file_size, this.ui),
-        );
-        this.showToast(notice);
-      }
+      this.paint();
+      if (prepared.next_level) void this.refineModel(path, accessRequestId, token);
     } catch (err) {
-      if (token !== this.loadToken) return;
-      if (summaryPromise) {
-        try {
-          const summary = await summaryPromise;
-          this.summaryCache.set(path, summary);
-        } catch {
-          /* metadata optional for error copy */
-        }
-      }
       if (token !== this.loadToken) return;
       const raw = err instanceof Error ? err.message : String(err);
       if (raw.startsWith("MODEL_ASSETS_ACCESS_")) this.summaryCache.delete(path);
@@ -2828,7 +2835,88 @@ export class App {
     this.paint();
   }
 
+  private cancelModelPreparation(): void {
+    this.openRequestToken++;
+    const request = this.activeLoadRequest;
+    this.activeLoadRequest = null;
+    this.viewport.cancelRefinement();
+    if (request) void cancelViewerPreparation(request).catch(() => {});
+  }
+
+  private stopRefinement(): void {
+    if (this.refinementState !== "preparing") return;
+    this.cancelModelPreparation();
+    this.refinementState = "stopped";
+    this.paintRefinement();
+  }
+
+  private handleModelProgress(kind: "parse" | "pack", progress: ModelLoadProgress): void {
+    if (!this.activeLoadRequest || progress.request_id !== this.activeLoadRequest) return;
+    const percent = Math.max(0, Math.min(100, progress.percent));
+    if (!Number.isFinite(percent)) return;
+    if (kind === "pack" && this.phase === "ready" && this.refinementState === "preparing") {
+      this.refinementPercent = percent;
+      this.paintRefinement();
+    } else if (this.phase === "loading") {
+      if (kind === "parse") this.parseProgress = percent;
+      else this.packProgress = percent;
+      this.syncLoadingProgress();
+    }
+  }
+
+  private async refineModel(path: string, request: string, token: number): Promise<void> {
+    const current = () => token === this.loadToken && request === this.activeLoadRequest && path === this.activePath;
+    this.refinementState = "preparing";
+    try {
+      while (this.refinementNext && current()) {
+        this.refinementPercent = 0;
+        this.paintRefinement();
+        // Model export can run the converter too. Avoid starting another heavy job
+        // while it or high-resolution capture is already working.
+        while (current() && (this.modelExporting || this.cutoutExporting)) await delay(50);
+        if (!current()) return;
+        const prepared = await prepareViewerModel(path, request, this.refinementNext);
+        if (!current()) return;
+        const swapped = await this.viewport.refine(convertFileSrc(prepared.path, "asset"), this.ui.error_viewer_load);
+        if (!current() || !swapped) return;
+        this.preparedLevel = prepared.level;
+        this.refinementNext = prepared.next_level;
+        this.syncSceneGuidesAfterModelReady();
+        this.cutoutFrameGuide.scheduleUpdate(0);
+        this.paintCutoutModeUi();
+      }
+      if (current()) this.refinementState = "idle";
+    } catch (err) {
+      if (current()) {
+        this.refinementState = "failed";
+        const raw = err instanceof Error ? err.message : String(err);
+        this.showToast(localizeBackendLoadError(raw, this.ui) ?? this.ui.model_detail_failed, "error");
+      }
+    } finally {
+      if (current()) this.paintRefinement();
+    }
+  }
+
+  private paintRefinement(): void {
+    this.paintCacheSection();
+    const visible = this.phase === "ready" && this.preparedLevel !== null && this.preparedLevel !== "original";
+    this.els.refinement.classList.toggle("hidden", !visible);
+    this.els.refinement.style.display = visible ? "flex" : "none";
+    if (!visible) return;
+    const level = this.preparedLevel === "structure" ? this.ui.loading_structure_preview
+      : this.preparedLevel === "preview" ? this.ui.model_preview_ready : this.ui.model_detail_ready;
+    const pending = this.refinementNext === "preview" ? this.ui.loading_model_preview : this.ui.loading_model_details;
+    const status = this.refinementState === "preparing" ? pending
+      : this.refinementState === "stopped" ? this.ui.model_preview_stopped
+      : this.refinementState === "failed" ? this.ui.model_detail_failed : "";
+    this.els.refinementLabel.textContent = [level, status].filter(Boolean).join(" · ");
+    this.els.refinementStop.textContent = this.ui.stop_refinement;
+    this.els.refinementStop.classList.toggle("hidden", this.refinementState !== "preparing");
+    this.els.refinementStop.style.display = this.refinementState === "preparing" ? "" : "none";
+  }
+
   private paint(): void {
+    this.paintRefinement();
     const interactive = this.phase === "ready";
     const overlayVisible =
       this.phase === "loading" ||
@@ -3070,6 +3158,7 @@ export class App {
   }
 
   private unloadScene(): void {
+    this.cancelModelPreparation();
     this.loadToken++;
     this.activePath = null;
     this.summary = null;
@@ -3319,6 +3408,10 @@ const SHELL_HTML = `
     <div class="viewport-host" tabindex="0"></div>
     <div class="overlay" data-bind="overlay"></div>
     <div class="axis-widget" data-bind="axis-widget" aria-hidden="true"></div>
+    <div class="glass-capsule hidden" data-bind="model-refinement" style="position:absolute;top:72px;left:50%;transform:translateX(-50%);z-index:8;max-width:60%;padding:8px 12px;display:none;align-items:center;gap:12px;font-size:12px;pointer-events:auto">
+      <span data-bind="model-refinement-label" role="status" aria-live="polite"></span>
+      <button type="button" class="error-dismiss" data-action="stop-refinement" style="margin:0;white-space:nowrap"></button>
+    </div>
   </main>
 
   <aside class="explorer-rail glass-capsule">

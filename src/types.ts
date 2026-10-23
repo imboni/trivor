@@ -1,4 +1,24 @@
+export type ModelExportFormat = "glb" | "gltf";
+export type ViewerModelLevel = "original" | "structure" | "preview" | "detail";
+export interface PreparedViewerModel {
+  path: string;
+  level: ViewerModelLevel;
+  next_level: "preview" | "detail" | null;
+}
+export interface ModelLoadProgress {
+  request_id: string | null;
+  percent: number;
+}
+
 export interface UiBundle {
+  loading_structure_preview: string;
+  loading_model_preview: string;
+  loading_model_details: string;
+  model_preview_ready: string;
+  model_detail_ready: string;
+  model_detail_failed: string;
+  stop_refinement: string;
+  model_preview_stopped: string;
   locale: string;
   locale_pref: string;
   theme: string;
@@ -74,6 +94,11 @@ export interface UiBundle {
   error_gltf_sidecar_hint: string;
   error_gltfpack_missing: string;
   error_gltfpack_preview_failed: string;
+  error_model_preparation_cancelled: string;
+  error_model_large_format: string;
+  error_model_draco_preview: string;
+  error_model_preview_budget: string;
+  error_model_preparation: string;
   error_large_model_hint: string;
   large_model_preview_notice: string;
   error_viewer_load: string;

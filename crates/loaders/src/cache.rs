@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
-use crate::asset_uri::local_asset_path;
 use crate::model_assets::io_error;
 use crate::LoadError;
 
@@ -114,19 +113,7 @@ pub(crate) fn referenced_paths(source: &Path) -> Result<BTreeSet<PathBuf>, LoadE
     {
         "obj" => obj_dependencies(&source, &mut paths)?,
         "gltf" | "glb" => {
-            let bytes = crate::gltf_inspect::read_gltf_json_bytes(&source)?;
-            let doc: serde_json::Value = serde_json::from_slice(&bytes)
-                .map_err(|e| crate::asset_uri::parse_error(&source, e.to_string()))?;
-            for key in ["buffers", "images"] {
-                for entry in doc[key].as_array().into_iter().flatten() {
-                    if let Some(uri) = entry["uri"]
-                        .as_str()
-                        .filter(|uri| !uri.starts_with("data:"))
-                    {
-                        paths.insert(local_asset_path(&source, uri)?);
-                    }
-                }
-            }
+            paths.extend(crate::gltf_inspect::external_paths(&source)?);
         }
         _ => {}
     }

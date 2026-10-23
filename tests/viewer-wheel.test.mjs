@@ -67,6 +67,7 @@ function fixture() {
       if (id === "./cutout-export") return {};
       if (id === "./model-appearance") return { resetModelAppearanceCache() {} };
       if (id === "./scene-guides") return { resetSceneGuideSyncCache() {} };
+      if (id === "./model-scene-access") return { getModelScene: () => null };
       if (id === "./viewport-framing") return { adjustCameraForViewportInsets() {} };
       throw new Error(`Unexpected import: ${id}`);
     },

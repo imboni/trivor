@@ -1,8 +1,11 @@
 //! Read glTF/GLB JSON chunk only — no geometry decode.
 
+use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 
 use glam::{Mat4, Quat, Vec3};
 use serde::Deserialize;
@@ -16,7 +19,7 @@ pub const PREVIEW_OPTIMIZE_BYTES: u64 = 200 * 1024 * 1024;
 /// Typical upper bound for reliable direct viewing (matches preview threshold).
 pub const VIEWER_STABLE_MAX_BYTES: u64 = PREVIEW_OPTIMIZE_BYTES;
 /// Typical upper bound for reliable direct viewing (triangle count from JSON header).
-pub const VIEWER_STABLE_MAX_TRIANGLES: u64 = 5_000_000;
+pub const VIEWER_STABLE_MAX_TRIANGLES: u64 = 2_000_000;
 /// Above this on-disk size, simplified preview often still fails (textures dominate).
 pub const VIEWER_HARD_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 /// Above this triangle count, WKWebView often OOMs even after mesh simplification.
@@ -27,7 +30,16 @@ pub struct GltfQuickStats {
     pub file_size: u64,
     pub buffer_bytes: u64,
     pub mesh_count: usize,
+    pub draw_calls: u64,
+    pub instance_count: u64,
     pub triangle_count: u64,
+    /// Conservative uncompressed accessor storage (including animation/morph data).
+    pub geometry_bytes: u64,
+    /// RGBA8 with mipmaps, deliberately independent of compressed file size.
+    pub texture_bytes: u64,
+    pub image_count: usize,
+    pub required_draco: bool,
+    pub texture_encoding_failed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +55,10 @@ struct GltfJsonChunk {
     accessors: Vec<GltfAccessor>,
     #[serde(default)]
     buffers: Vec<GltfBuffer>,
+    #[serde(default, rename = "bufferViews")]
+    buffer_views: Vec<GltfBufferView>,
+    #[serde(default)]
+    images: Vec<GltfImage>,
     #[serde(default)]
     materials: Vec<GltfMaterial>,
     #[serde(default, rename = "extensionsUsed")]
@@ -53,6 +69,8 @@ struct GltfJsonChunk {
 
 #[derive(Debug, Deserialize)]
 struct GltfNode {
+    #[serde(default)]
+    extensions: GltfNodeExtensions,
     mesh: Option<usize>,
     #[serde(default)]
     children: Vec<usize>,
@@ -60,6 +78,17 @@ struct GltfNode {
     translation: Option<[f32; 3]>,
     rotation: Option<[f32; 4]>,
     scale: Option<[f32; 3]>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GltfNodeExtensions {
+    #[serde(rename = "EXT_mesh_gpu_instancing")]
+    instancing: Option<GltfInstancing>,
+}
+#[derive(Debug, Deserialize)]
+struct GltfInstancing {
+    #[serde(default)]
+    attributes: std::collections::HashMap<String, usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +118,8 @@ struct GltfAttributes {
 
 #[derive(Debug, Deserialize)]
 struct GltfAccessor {
+    #[serde(default, rename = "type")]
+    kind: String,
     #[serde(default, rename = "componentType")]
     component_type: u32,
     #[serde(default)]
@@ -103,9 +134,28 @@ struct GltfAccessor {
 
 #[derive(Debug, Deserialize)]
 struct GltfBuffer {
+    uri: Option<String>,
     #[serde(default)]
     #[serde(rename = "byteLength")]
     byte_length: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfBufferView {
+    buffer: usize,
+    #[serde(default)]
+    byte_offset: u64,
+    byte_length: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GltfImage {
+    uri: Option<String>,
+    buffer_view: Option<usize>,
+    #[serde(default)]
+    mime_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,36 +236,92 @@ pub(crate) fn read_gltf_json_bytes(path: &Path) -> Result<Vec<u8>, LoadError> {
 }
 
 fn parse_gltf_json(path: &Path) -> Result<GltfJsonChunk, LoadError> {
-    let json_bytes = read_gltf_json_bytes(path)?;
-    serde_json::from_slice(&json_bytes).map_err(|e| LoadError::Parse {
-        path: path.to_path_buf(),
-        message: format!("failed to parse glTF JSON: {e}"),
-    })
+    crate::gltf_metadata::read(path)
+}
+
+fn primitive_triangles(doc: &GltfJsonChunk, prim: &GltfPrimitive) -> u64 {
+    let count = prim
+        .indices
+        .and_then(|index| doc.accessors.get(index))
+        .or_else(|| {
+            prim.attributes
+                .as_ref()
+                .and_then(|attrs| attrs.POSITION)
+                .and_then(|index| doc.accessors.get(index))
+        })
+        .map(|accessor| accessor.count)
+        .unwrap_or(0);
+    match prim.mode.unwrap_or(4) {
+        4 => count / 3,
+        5 | 6 => count.saturating_sub(2),
+        _ => 0,
+    }
 }
 
 fn triangle_count_from_doc(doc: &GltfJsonChunk) -> u64 {
     doc.meshes
         .iter()
         .flat_map(|mesh| &mesh.primitives)
-        .map(|prim| {
-            let count = prim
-                .indices
-                .and_then(|index| doc.accessors.get(index))
-                .or_else(|| {
-                    prim.attributes
-                        .as_ref()
-                        .and_then(|attrs| attrs.POSITION)
-                        .and_then(|index| doc.accessors.get(index))
-                })
-                .map(|accessor| accessor.count)
-                .unwrap_or(0);
-            match prim.mode.unwrap_or(4) {
-                4 => count / 3,
-                5 | 6 => count.saturating_sub(2),
-                _ => 0,
-            }
+        .fold(0u64, |sum, prim| {
+            sum.saturating_add(primitive_triangles(doc, prim))
         })
-        .sum()
+}
+
+/// Include all visible instances, not only unique meshes/accessors. In particular,
+/// thousands of copies of one small part can exceed the draw and face budgets.
+fn render_work(doc: &GltfJsonChunk) -> (u64, u64, u64) {
+    if doc.nodes.is_empty() {
+        return (
+            triangle_count_from_doc(doc),
+            doc.meshes.iter().map(|m| m.primitives.len() as u64).sum(),
+            doc.meshes.len() as u64,
+        );
+    }
+    let mut stack = if let Some(scene) = doc.scenes.get(doc.scene.unwrap_or(0)) {
+        scene.nodes.clone()
+    } else {
+        let children: BTreeSet<usize> = doc
+            .nodes
+            .iter()
+            .flat_map(|n| n.children.iter().copied())
+            .collect();
+        (0..doc.nodes.len())
+            .filter(|i| !children.contains(i))
+            .collect()
+    };
+    let mut visited = BTreeSet::new();
+    let (mut triangles, mut draws, mut instances) = (0u64, 0u64, 0u64);
+    while let Some(index) = stack.pop() {
+        if !visited.insert(index) {
+            continue;
+        }
+        let Some(node) = doc.nodes.get(index) else {
+            continue;
+        };
+        if let Some(mesh) = node.mesh.and_then(|i| doc.meshes.get(i)) {
+            let copies = node
+                .extensions
+                .instancing
+                .as_ref()
+                .and_then(|instancing| {
+                    instancing
+                        .attributes
+                        .values()
+                        .filter_map(|i| doc.accessors.get(*i))
+                        .map(|a| a.count)
+                        .max()
+                })
+                .unwrap_or(1);
+            let faces = mesh.primitives.iter().fold(0u64, |sum, p| {
+                sum.saturating_add(primitive_triangles(doc, p))
+            });
+            triangles = triangles.saturating_add(faces.saturating_mul(copies));
+            draws = draws.saturating_add(mesh.primitives.len() as u64);
+            instances = instances.saturating_add(copies);
+        }
+        stack.extend(&node.children);
+    }
+    (triangles, draws, instances)
 }
 
 fn vertex_count_from_doc(doc: &GltfJsonChunk) -> u64 {
@@ -225,7 +331,7 @@ fn vertex_count_from_doc(doc: &GltfJsonChunk) -> u64 {
             if let Some(attrs) = &prim.attributes {
                 if let Some(pos) = attrs.POSITION {
                     if let Some(acc) = doc.accessors.get(pos) {
-                        total += acc.count;
+                        total = total.saturating_add(acc.count);
                     }
                 }
             }
@@ -235,6 +341,15 @@ fn vertex_count_from_doc(doc: &GltfJsonChunk) -> u64 {
 }
 
 fn bounds_from_doc(doc: &GltfJsonChunk) -> (f32, f32, f32) {
+    // Instance transforms are in binary accessors. A header-only scan cannot
+    // truthfully substitute the untransformed prototype's dimensions.
+    if doc
+        .nodes
+        .iter()
+        .any(|node| node.extensions.instancing.is_some())
+    {
+        return (0.0, 0.0, 0.0);
+    }
     let mut min = Vec3::splat(f32::INFINITY);
     let mut max = Vec3::splat(f32::NEG_INFINITY);
     let mut add_mesh = |index: usize, transform: Mat4| {
@@ -335,12 +450,19 @@ fn bounds_from_doc(doc: &GltfJsonChunk) -> (f32, f32, f32) {
 
 /// Metadata for the inspector without decoding geometry buffers (large models).
 pub fn inspect_scene_summary_light(path: &Path) -> Result<SceneSummary, LoadError> {
+    inspect_scene_summary_light_cancellable(path, &AtomicBool::new(false))
+}
+
+pub(crate) fn inspect_scene_summary_light_cancellable(
+    path: &Path,
+    cancelled: &AtomicBool,
+) -> Result<SceneSummary, LoadError> {
     let path = path.canonicalize().map_err(|e| LoadError::Io {
         path: path.to_path_buf(),
         message: e.to_string(),
     })?;
     let file_size = crate::limits::file_size(&path)?;
-    let doc = parse_gltf_json(&path)?;
+    let doc: GltfJsonChunk = crate::gltf_metadata::read_cancellable(&path, cancelled)?;
     let (bounds_w, bounds_h, bounds_d) = bounds_from_doc(&doc);
     let materials: Vec<MaterialSummary> = doc
         .materials
@@ -378,119 +500,202 @@ pub fn inspect_scene_summary_light(path: &Path) -> Result<SceneSummary, LoadErro
 }
 
 pub fn inspect_gltf_quick(path: &Path) -> Result<GltfQuickStats, LoadError> {
-    let file_size = crate::limits::file_size(path)?;
-    let doc = parse_gltf_json(path)?;
-    let buffer_bytes = doc.buffers.iter().map(|b| b.byte_length).sum();
-    Ok(GltfQuickStats {
-        file_size,
-        mesh_count: doc.meshes.len(),
-        buffer_bytes,
-        triangle_count: triangle_count_from_doc(&doc),
-    })
+    inspect_gltf_file(path)
 }
 
-/// `.gltf` JSON + sidecar totals (no geometry decode).
-pub fn inspect_gltf_file(path: &Path) -> Result<GltfQuickStats, LoadError> {
-    let total_bytes = gltf_sidecar_bytes(path)?;
-    let doc = parse_gltf_json(path)?;
-    let json_buffer_bytes = doc.buffers.iter().map(|b| b.byte_length).sum::<u64>();
-    let buffer_bytes = json_buffer_bytes.max(total_bytes);
+/// Resolve only physical dependencies. Inline payloads are omitted by the metadata
+/// reader, so even a multi-gigabyte embedded .gltf never becomes a JSON String.
+pub(crate) fn external_paths(path: &Path) -> Result<BTreeSet<PathBuf>, LoadError> {
+    external_paths_cancellable(path, &AtomicBool::new(false))
+}
 
+pub(crate) fn external_paths_cancellable(
+    path: &Path,
+    cancelled: &AtomicBool,
+) -> Result<BTreeSet<PathBuf>, LoadError> {
+    let doc = crate::gltf_metadata::read_cancellable(path, cancelled)?;
+    external_paths_from_doc(path, &doc)
+}
+
+fn external_paths_from_doc(
+    path: &Path,
+    doc: &GltfJsonChunk,
+) -> Result<BTreeSet<PathBuf>, LoadError> {
+    doc.buffers
+        .iter()
+        .filter_map(|b| b.uri.as_deref())
+        .chain(doc.images.iter().filter_map(|i| i.uri.as_deref()))
+        .filter(|uri| !uri.starts_with("data:"))
+        .map(|uri| crate::asset_uri::local_asset_path(path, uri))
+        .collect()
+}
+
+fn read_prefix(path: &Path, offset: u64, length: u64) -> Result<Vec<u8>, LoadError> {
+    let mut file = File::open(path).map_err(|e| crate::model_assets::io_error(path, e))?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| crate::model_assets::io_error(path, e))?;
+    let mut bytes = Vec::new();
+    file.take(length.min(64 * 1024))
+        .read_to_end(&mut bytes)
+        .map_err(|e| crate::model_assets::io_error(path, e))?;
+    Ok(bytes)
+}
+
+fn image_prefix(path: &Path, doc: &GltfJsonChunk, image: &GltfImage) -> Result<Vec<u8>, LoadError> {
+    if let Some(uri) = &image.uri {
+        if uri.starts_with("data:") {
+            // Metadata retained only a short prefix; truncate base64 to whole groups.
+            if let Some((header, body)) =
+                uri.split_once(',').filter(|(h, _)| h.ends_with(";base64"))
+            {
+                // A metadata prefix may end in the middle of a percent escape;
+                // unknown dimensions are charged conservatively below.
+                return Ok(crate::asset_uri::read_asset(
+                    path,
+                    &format!("{header},{}", &body[..body.len() / 4 * 4]),
+                )
+                .unwrap_or_default());
+            }
+            return Ok(Vec::new());
+        }
+        return read_prefix(&crate::asset_uri::local_asset_path(path, uri)?, 0, u64::MAX);
+    }
+    let Some(view) = image.buffer_view.and_then(|i| doc.buffer_views.get(i)) else {
+        return Ok(Vec::new());
+    };
+    let Some(buffer) = doc.buffers.get(view.buffer) else {
+        return Ok(Vec::new());
+    };
+    if let Some(uri) = &buffer.uri {
+        if uri.starts_with("data:") {
+            return Ok(Vec::new());
+        }
+        return read_prefix(
+            &crate::asset_uri::local_asset_path(path, uri)?,
+            view.byte_offset,
+            view.byte_length,
+        );
+    }
+    if view.buffer == 0
+        && path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("glb"))
+    {
+        let header = read_prefix(path, 0, 20)?;
+        if header.len() == 20 {
+            let bin = 28 + u32::from_le_bytes(header[12..16].try_into().unwrap()) as u64;
+            return read_prefix(path, bin.saturating_add(view.byte_offset), view.byte_length);
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn image_dimensions(bytes: &[u8], _mime: &str) -> Option<(u32, u32)> {
+    if bytes.starts_with(b"\xabKTX 20\xbb\r\n\x1a\n") && bytes.len() >= 44 {
+        let u = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        // Account for arrays, cubemaps and volumes conservatively in the area.
+        let layers = u(32)
+            .max(1)
+            .saturating_mul(u(36).max(1))
+            .saturating_mul(u(28).max(1));
+        return Some((u(20), u(24).max(1).saturating_mul(layers)));
+    }
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+}
+
+pub(crate) fn external_image_decoded_bytes(path: &Path) -> Result<u64, LoadError> {
+    let prefix = read_prefix(path, 0, u64::MAX)?;
+    Ok(image_dimensions(&prefix, "")
+        .map(|(w, h)| (w as u64).saturating_mul(h as u64).saturating_mul(16) / 3)
+        .unwrap_or(1024 * 1024 * 1024))
+}
+
+pub fn inspect_gltf_file(path: &Path) -> Result<GltfQuickStats, LoadError> {
+    inspect_gltf_file_cancellable(path, &AtomicBool::new(false))
+}
+
+pub(crate) fn inspect_gltf_file_cancellable(
+    path: &Path,
+    cancelled: &AtomicBool,
+) -> Result<GltfQuickStats, LoadError> {
+    let doc: GltfJsonChunk = crate::gltf_metadata::read_cancellable(path, cancelled)?;
+    let mut file_size = crate::limits::file_size(path)?;
+    for dependency in external_paths_from_doc(path, &doc)? {
+        file_size = file_size.saturating_add(crate::limits::file_size(&dependency)?);
+    }
+    let buffer_bytes = doc
+        .buffers
+        .iter()
+        .fold(0u64, |sum, b| sum.saturating_add(b.byte_length));
+    let accessor_bytes = doc.accessors.iter().fold(0u64, |sum, accessor| {
+        let components = match accessor.kind.as_str() {
+            "SCALAR" => 1,
+            "VEC2" => 2,
+            "VEC3" => 3,
+            "VEC4" | "MAT2" => 4,
+            "MAT3" => 9,
+            "MAT4" => 16,
+            _ => 16,
+        };
+        sum.saturating_add(accessor.count.saturating_mul(components * 4))
+    });
+    let image_views: BTreeSet<usize> = doc.images.iter().filter_map(|i| i.buffer_view).collect();
+    let view_bytes = doc
+        .buffer_views
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !image_views.contains(i))
+        .fold(0u64, |sum, (_, view)| sum.saturating_add(view.byte_length));
+    let mut texture_bytes = 0u64;
+    for image in &doc.images {
+        crate::gltf_optimize::check_cancelled(path, cancelled)?;
+        let prefix = image_prefix(path, &doc, image)?;
+        let bytes = image_dimensions(&prefix, &image.mime_type)
+            .map(|(w, h)| {
+                (w as u64)
+                    .saturating_mul(h as u64)
+                    .saturating_mul(4)
+                    .saturating_mul(4)
+                    / 3
+            })
+            // Unknown dimensions must never be treated as a zero-cost texture.
+            .unwrap_or(1024 * 1024 * 1024);
+        texture_bytes = texture_bytes.saturating_add(bytes);
+    }
+    let (triangle_count, draw_calls, instance_count) = render_work(&doc);
     Ok(GltfQuickStats {
-        file_size: total_bytes,
+        file_size,
         buffer_bytes,
         mesh_count: doc.meshes.len(),
-        triangle_count: triangle_count_from_doc(&doc),
+        draw_calls,
+        instance_count,
+        triangle_count,
+        geometry_bytes: accessor_bytes.max(view_bytes),
+        texture_bytes,
+        image_count: doc.images.len(),
+        texture_encoding_failed: doc
+            .images
+            .iter()
+            .any(|image| image.uri.as_deref() == Some("data:image/png;base64,ERR/")),
+        required_draco: doc
+            .extensions_required
+            .iter()
+            .any(|e| e == "KHR_draco_mesh_compression"),
     })
 }
 
 pub fn needs_preview_optimize(stats: &GltfQuickStats) -> bool {
-    stats.file_size >= PREVIEW_OPTIMIZE_BYTES || stats.buffer_bytes >= PREVIEW_OPTIMIZE_BYTES
-}
-
-/// Whether inspector metadata can skip full geometry decode.
-pub fn needs_lightweight_summary(path: &Path, file_size: u64) -> bool {
-    if file_size >= PREVIEW_OPTIMIZE_BYTES {
-        return true;
-    }
-    let Some(ext) = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-    else {
-        return false;
-    };
-    match ext.as_str() {
-        "glb" => inspect_gltf_quick(path)
-            .ok()
-            .is_some_and(|stats| needs_preview_optimize(&stats)),
-        "gltf" => inspect_gltf_file(path)
-            .ok()
-            .is_some_and(|stats| needs_preview_optimize(&stats)),
-        _ => false,
-    }
-}
-
-pub fn preview_simplify_ratio(file_size: u64) -> f32 {
-    if file_size >= 2 * 1024 * 1024 * 1024 {
-        0.02
-    } else if file_size >= 1024 * 1024 * 1024 {
-        0.03
-    } else if file_size >= 500 * 1024 * 1024 {
-        0.05
-    } else if file_size >= 200 * 1024 * 1024 {
-        0.08
-    } else {
-        0.1
-    }
-}
-
-/// `.gltf` sidecar total size (JSON + bin + textures) for repack threshold checks.
-pub fn gltf_sidecar_bytes(gltf_path: &Path) -> Result<u64, LoadError> {
-    let base = gltf_path.parent().unwrap_or_else(|| Path::new("."));
-    let bytes = std::fs::read(gltf_path).map_err(|e| LoadError::Io {
-        path: gltf_path.to_path_buf(),
-        message: e.to_string(),
-    })?;
-    let doc: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| LoadError::Parse {
-        path: gltf_path.to_path_buf(),
-        message: e.to_string(),
-    })?;
-    let mut total = gltf_path
-        .metadata()
-        .map_err(|e| LoadError::Io {
-            path: gltf_path.to_path_buf(),
-            message: e.to_string(),
-        })?
-        .len();
-
-    if let Some(buffers) = doc.get("buffers").and_then(|v| v.as_array()) {
-        for buffer in buffers {
-            if let Some(uri) = buffer.get("uri").and_then(|v| v.as_str()) {
-                if uri.starts_with("data:") {
-                    continue;
-                }
-                let sidecar = base.join(uri);
-                if sidecar.exists() {
-                    total += sidecar.metadata().map(|m| m.len()).unwrap_or(0);
-                }
-            }
-        }
-    }
-    if let Some(images) = doc.get("images").and_then(|v| v.as_array()) {
-        for image in images {
-            if let Some(uri) = image.get("uri").and_then(|v| v.as_str()) {
-                if uri.starts_with("data:") {
-                    continue;
-                }
-                let sidecar = base.join(uri);
-                if sidecar.exists() {
-                    total += sidecar.metadata().map(|m| m.len()).unwrap_or(0);
-                }
-            }
-        }
-    }
-    Ok(total)
+    stats.file_size >= PREVIEW_OPTIMIZE_BYTES
+        || stats.buffer_bytes >= PREVIEW_OPTIMIZE_BYTES
+        || stats.draw_calls > 512
+        || stats.instance_count > 10_000
+        || stats.geometry_bytes > 128 * 1024 * 1024
+        || stats.texture_bytes > 128 * 1024 * 1024
+        || stats.triangle_count > VIEWER_STABLE_MAX_TRIANGLES
 }
 
 const VIEWER_COMPRESSED_EXTENSIONS: &[&str] = &[
@@ -561,10 +766,85 @@ mod tests {
             (2.0, 3.0, 4.0)
         );
     }
+    #[test]
+    fn budgets_count_decoded_accessors_and_mesh_instances_not_only_disk_bytes() {
+        let dir = crate::cache::tests::TempDir::new();
+        let source = dir.0.join("instances.gltf");
+        let mut doc = serde_json::json!({
+            "asset": {"version":"2.0"},
+            "nodes": (0..513).map(|_| serde_json::json!({"mesh":0})).collect::<Vec<_>>(),
+            "meshes": [{"primitives":[{"attributes":{"POSITION":0}}]}],
+            "accessors": [{"count":36,"type":"VEC3","componentType":5126}]
+        });
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let stats = inspect_gltf_file(&source).unwrap();
+        assert_eq!(stats.triangle_count, 12 * 513);
+        assert_eq!(stats.draw_calls, 513);
+        assert_eq!(stats.geometry_bytes, 36 * 12);
+        assert!(needs_preview_optimize(&stats));
+        doc["nodes"] = serde_json::json!([{"mesh":0,"extensions":{"EXT_mesh_gpu_instancing":{"attributes":{"TRANSLATION":1}}}}]);
+        doc["accessors"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"count":100001,"type":"VEC3","componentType":5126}));
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let stats = inspect_gltf_file(&source).unwrap();
+        assert_eq!(stats.draw_calls, 1);
+        assert_eq!(stats.instance_count, 100001);
+        assert_eq!(stats.triangle_count, 1_200_012);
+        assert!(needs_preview_optimize(&stats));
+        let summary = inspect_scene_summary_light(&source).unwrap();
+        assert_eq!(
+            (summary.bounds_w, summary.bounds_h, summary.bounds_d),
+            (0.0, 0.0, 0.0)
+        );
+        doc["nodes"] = serde_json::json!([{"mesh":0}]);
+        doc["accessors"][0]["count"] = serde_json::json!(100_000_000);
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let stats = inspect_gltf_file(&source).unwrap();
+        assert!(stats.file_size < 1024);
+        assert!(stats.geometry_bytes > 1024 * 1024 * 1024);
+        assert!(needs_preview_optimize(&stats));
+    }
 
     #[test]
-    fn preview_ratio_scales_with_size() {
-        assert!(preview_simplify_ratio(3 * 1024 * 1024 * 1024) <= 0.02);
-        assert!(preview_simplify_ratio(250 * 1024 * 1024) >= 0.08);
+    fn encoded_dependency_paths_and_texture_dimensions_use_headers() {
+        let dir = crate::cache::tests::TempDir::new();
+        let source = dir.0.join("textured.gltf");
+        let texture = dir.0.join("纹理 test.png");
+        image::RgbaImage::from_pixel(256, 128, image::Rgba([255, 20, 40, 255]))
+            .save(&texture)
+            .unwrap();
+        let bin = dir.0.join("geo metry.bin");
+        std::fs::write(&bin, [0; 1024]).unwrap();
+        let doc = serde_json::json!({
+            "asset":{"version":"2.0"},
+            "buffers":[{"uri":"geo%20metry.bin","byteLength":1024}],
+            "images":[{"uri":"%E7%BA%B9%E7%90%86%20test.png"}]
+        });
+        std::fs::write(&source, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let stats = inspect_gltf_file(&source).unwrap();
+        assert_eq!(
+            stats.file_size,
+            source.metadata().unwrap().len() + texture.metadata().unwrap().len() + 1024
+        );
+        assert_eq!(stats.texture_bytes, 256 * 128 * 16 / 3);
+        assert_eq!(external_paths(&source).unwrap().len(), 2);
+        assert!(!needs_preview_optimize(&stats));
+    }
+
+    #[test]
+    fn unknown_texture_size_is_conservative_and_ktx_layers_are_counted() {
+        assert_eq!(image_dimensions(&[], "image/unknown"), None);
+        let mut bytes = vec![0; 44];
+        bytes[..12].copy_from_slice(b"\xabKTX 20\xbb\r\n\x1a\n");
+        bytes[20..24].copy_from_slice(&1024u32.to_le_bytes());
+        bytes[24..28].copy_from_slice(&512u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&3u32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&6u32.to_le_bytes());
+        assert_eq!(
+            image_dimensions(&bytes, "image/ktx2"),
+            Some((1024, 512 * 18))
+        );
     }
 }

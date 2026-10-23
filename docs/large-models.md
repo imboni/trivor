@@ -1,131 +1,55 @@
-# Large models in Trivor
+# Large-model loading
 
 **English** · [简体中文](large-models.zh-Hans.md)
 
-Trivor is a **single-file glTF / GLB viewer** built on `model-viewer` inside a WKWebView. That stack can inspect large assets and render many production models, but it **cannot decode an entire multi‑gigabyte, tens‑of‑millions‑of‑triangles GLB into GPU memory at full fidelity**.
+## Progressive previews
 
-This document describes what Trivor does **today**, known limits, and the **planned** direction for monolithic huge GLB files (without relying on pre-cut tile folders from other projects).
+For large GLB / glTF assets, including roughly 2 GB inputs, loading has three stages:
 
----
+1. **Structure overview (bounding boxes)** reads JSON bounds and node transforms without loading geometry BIN data. The UI identifies these as boxes, not real surfaces.
+2. **Geometry preview** builds a smaller mesh/texture representation in the background.
+3. **Detailed preview (simplified)** rebuilds a finer representation from the original source. The foreground stays interactive; replacement preserves the live camera and initial Reset pose.
 
-## Current behavior (shipped)
+Stop refinement at any time. Switching or closing a model cancels the previous preparation. Failed refinement leaves the current stage visible; reopen the same file to retry. Reopening reuses the highest validated cache stage. Source and external-resource changes invalidate caches.
 
-### Threshold
+Sources remain unchanged. GLB/glTF exports use the original asset; transparent PNG exports capture the visible stage. Detail replacement waits for active high-resolution capture.
 
-Models whose on-disk size or embedded buffer total is **≥ 200 MB** enter the **large-model preview pipeline**.
+## Trigger and budgets
 
-Implementation: `PREVIEW_OPTIMIZE_BYTES` in `crates/loaders/src/gltf_inspect.rs`.
+Preparation starts when any of these thresholds is exceeded, including compressed meshopt inputs:
 
-### What happens when you open a large GLB
+- 200 MiB of source/dependency bytes or declared buffer bytes;
+- 2 million triangles across scene instances;
+- 128 MiB of estimated decoded geometry or textures;
+- 512 scene draw calls or 10,000 instances.
 
-1. **Inspector metadata** — JSON header only (`inspect_scene_summary_light`); geometry buffers are not fully decoded in Rust.
-2. **Viewer asset** — `gltfpack` (bundled meshoptimizer sidecar) builds a **simplified meshopt GLB** in the app cache:
-   - Cache path pattern: `{app_cache}/viewer/{name}-{mtime}-preview-{ratio}.glb`
-   - Simplify ratio scales with file size (e.g. **2%** triangles for files ≥ 2 GB).
-   - Original file on disk is **never modified**.
-3. **UI** — Loading shows *Large model — auto-optimizing preview*; after success a toast notes that a **simplified preview** is shown.
+Each output is checked before its cache is published:
 
-### What this is good for
+| Stage | Triangles | Geometry | Textures | Maximum texture edge | Draw calls |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Geometry preview | 300,000 | 64 MiB | 64 MiB | 512 px | 1,024 |
+| Detailed preview | 2,000,000 | 256 MiB | 256 MiB | 1,024 px | 4,096 |
 
-- Quick inspection of shape, materials, and scale.
-- Avoiding WebView OOM crashes on monolithic assets.
+Many textures reduce the per-image edge further. Budgets estimate decoded memory including mipmaps, not just compressed file size. Unknown dimensions never count as zero. Preview textures use WebP encoding in memory to avoid sandbox temporary-file failures. A Basis transcoder is also bundled for offline KTX2 inputs. Over-budget outputs stop refinement instead of sending the original multi-gigabyte asset directly to the viewport.
 
-### What this is **not**
+## Limits
 
-- **Not lossless.** Triangle count is reduced on purpose.
-- **Not equivalent** to Cesium 3D Tiles or pre-split spatial tiles at full detail.
+- These are progressively finer **simplified previews**, not lossless spatial tiles or view-dependent streaming. Full original fidelity is not promised.
+- gltfpack still reads the full input. Conversion memory differs from the viewport budget; only one large conversion runs at a time.
+- Missing bounds or GPU instancing skip the structure stage rather than display incorrect boxes. At most 2,048 boxes are shown; excess boxes aggregate into overall bounds.
+- Required Draco compression cannot currently be optimized by the converter. An available overview remains visible when refinement fails. Small Draco assets retain their existing loading path.
+- This large-model pipeline targets GLB/glTF. Large OBJ/STL inputs ask for conversion to GLB/glTF first; small inputs remain supported.
+- Large inline-base64 `.gltf` metadata is scanned with bounded memory but still requires sequential I/O. It cannot match a GLB's independent JSON chunk for first overview latency.
+- Lossless full-detail streaming requires a separate tiled rendering architecture.
 
-### Supporting files
+## Measurements
 
-| Item | Purpose |
-|------|---------|
-| `scripts/fetch-gltfpack.sh` | Download macOS `gltfpack` sidecars for dev / universal builds |
-| `src-tauri/bin/gltfpack-*` | Bundled via Tauri `externalBin` in release builds |
-| `TRIVOR_GLTFPACK` env | Override sidecar path (development / tests) |
+On 2026-09-30, Apple Silicon with 32 GiB RAM: a generated, physically allocated 2.005 GiB GLB contained 22,429,696 nondegenerate triangles, 32 meshes/materials and four textures. All geometry bytes are referenced; this is not a sparse/padded size-only fixture.
 
----
+- Structure preparation: about 3 ms, excluding app startup and first rendered frame.
+- Geometry preview: 9.99 s, 284,960 triangles; process-tree maximum RSS about 4.45 GiB.
+- Detailed preview: 9.05 s, 1,899,968 triangles; maximum RSS about 5.41 GiB.
+- Warm cache returns the detailed stage in under 1 ms of preparation time.
+- Cancellation requested at 500 ms returned at about 557 ms with temporary cache cleanup.
 
-## Hard limits (why “just load the 2.4 GB file” fails)
-
-| Constraint | Typical impact |
-|------------|----------------|
-| WKWebView memory | Loading full geometry for ~40M+ triangles often OOMs or kills the process |
-| `model-viewer` | Single `src`; one scene graph; no streaming LOD |
-| Decoded GPU size | Much larger than on-disk GLB; meshopt compression does not reduce decoded size unless geometry is simplified |
-
-**Loading the original monolithic GLB at full fidelity inside the current web viewport is not achievable** without changing the rendering architecture.
-
-### Export guide (current release)
-
-On load failure the app shows these reference limits (see `VIEWER_*` in `gltf_inspect.rs`):
-
-| Tier | File size | Triangles | Notes |
-|------|-----------|-----------|-------|
-| Usually OK | ≤ 200 MB | ≤ 5 million | Opens directly in most cases |
-| High risk | > 1 GB | > 20 million | May fail even after auto simplified preview |
-
-When textures dominate file size, **resize textures** before re-export. Clear preview cache in **Settings → Storage** and retry.
-
----
-
-## Planned direction (not implemented)
-
-Goal: user still opens **one** `.glb` path; Trivor may use **any internal strategy** so the session **eventually succeeds** and geometry is **not mesh-simplified** (`-si`).
-
-### Proposed pipeline
-
-```
-User opens model.glb (monolithic, huge)
-        │
-        ▼
-Detect size / triangle count (JSON header + stats)
-        │
-        ▼
-First visit: background **lossless spatial split** → cached tileset + tile GLBs
-  (no gltfpack -si; optional meshopt -cc for transport only)
-        │
-        ▼
-Viewport: Three.js (or native) **streaming** — load/unload tiles by camera
-        │
-        ▼
-Visible regions at full source fidelity; original file unchanged
-```
-
-### Principles
-
-- **Transparent to the user** — same file path in the library; cache under app container.
-- **No dependency on external `-tiles` folders** — splitting is performed by Trivor when needed.
-- **Preview mode remains a fallback** — if splitting fails or hardware is constrained, simplified preview or clear error messaging.
-- **Honest UX** — first-time prepare may take many minutes; show per-stage progress, not an immediate error state.
-
-### Out of scope for the first implementation
-
-- Georeferencing / globe placement (Cesium-style lon/lat) — Trivor stays a **local** viewer.
-- Loading entire 40M triangles into GPU simultaneously — even with tiles, memory is **view-dependent**.
-
-### Rough effort (historical estimate)
-
-| Phase | Scope | Estimate |
-|-------|--------|----------|
-| Docs + current preview polish | This document; loading copy; gltfpack discovery | Done / ongoing |
-| Lossless split + cache | Rust, spatial grid/BVH, tileset manifest | ~1–2 weeks |
-| Three.js tile viewport | Multi-GLB, transforms, fit, progress | ~1–2 weeks |
-| Streaming + inspector aggregation | Frustum pick, tile unload, stats | ~1 week |
-
----
-
-## Related reading
-
-- [README.md](../README.md) — user-facing note on ≥ 200 MB models
-- [CHANGELOG.md](../CHANGELOG.md) — release notes
-- [docs/RELEASE.md](RELEASE.md) — bundling `gltfpack` in release artifacts
-
-## Manual verification (developers)
-
-```bash
-bash scripts/fetch-gltfpack.sh
-npm run tauri dev
-# Open a GLB ≥ 200 MB; first load runs gltfpack, subsequent loads use cache.
-```
-
-Cache location (macOS): `~/Library/Caches/com.imboni.trivor/viewer/` (exact path follows Tauri app cache dir). Clear it anytime in **Settings → Storage**.
+These synthetic geometry results do not guarantee equal performance for every 2 GB CAD, scan or animation asset. See [tests/README.md](../tests/README.md) for browser/native validation.

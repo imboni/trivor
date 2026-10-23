@@ -1,254 +1,179 @@
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_opener::OpenerExt;
 
-const APP_NAME: &str = "Trivor.app";
-const VOLUMES_DIR: &str = "/Volumes";
-
-/// Remove leftover installer DMG mounts such as `/Volumes/Trivor` and `/Volumes/Trivor 1`.
-pub fn cleanup_stale_trivor_volumes() {
-    let volumes = Path::new(VOLUMES_DIR);
-    let Ok(entries) = fs::read_dir(volumes) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if !is_trivor_installer_volume(name) {
-            continue;
-        }
-        let _ = Command::new("hdiutil")
-            .args(["detach", "-force", "-quiet"])
-            .arg(entry.path())
-            .status();
-    }
-}
-
-pub fn install_downloaded_dmg(dmg_path: &Path, app: &AppHandle) -> Result<(), String> {
-    if !dmg_path.exists() {
-        return Err(format!("File not found: {}", dmg_path.display()));
-    }
-
-    cleanup_stale_trivor_volumes();
-
+/// Hand the downloaded image to macOS. Finder owns mounting and installation;
+/// the sandboxed running application neither overwrites itself nor exits.
+pub fn open_downloaded_dmg(dmg_path: &Path, app: &AppHandle) -> Result<(), String> {
     let updates_dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| e.to_string())?
         .join("updates");
-    fs::create_dir_all(&updates_dir).map_err(|e| e.to_string())?;
-
-    let mount_dir = updates_dir.join("mount");
-    let _ = detach_if_mounted(&mount_dir);
-    let _ = fs::remove_dir_all(&mount_dir);
-    fs::create_dir_all(&mount_dir).map_err(|e| e.to_string())?;
-
-    let attach = Command::new("hdiutil")
-        .args([
-            "attach",
-            "-nobrowse",
-            "-readonly",
-            "-noautoopen",
-            "-mountpoint",
-        ])
-        .arg(&mount_dir)
-        .arg(dmg_path)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !attach.status.success() {
-        let _ = fs::remove_dir_all(&mount_dir);
-        return Err(format!(
-            "Failed to mount update image: {}",
-            String::from_utf8_lossy(&attach.stderr)
-        ));
-    }
-
-    // Some images still register a `/Volumes/Trivor` alias; remove it immediately.
-    cleanup_stale_trivor_volumes();
-
-    let source_app = match find_app_bundle(&mount_dir) {
-        Ok(path) => path,
-        Err(err) => {
-            let _ = detach_if_mounted(&mount_dir);
-            let _ = fs::remove_dir_all(&mount_dir);
-            cleanup_stale_trivor_volumes();
-            return Err(err);
-        }
-    };
-
-    let target_app = resolve_install_target();
-    let script_path = updates_dir.join("install-update.sh");
-    write_install_script(
-        &script_path,
-        std::process::id(),
-        &source_app,
-        &target_app,
-        &mount_dir,
-    )?;
-
-    Command::new("/bin/bash")
-        .arg(&script_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-
-    app.exit(0);
-    Ok(())
+    let dmg_path = validated_downloaded_dmg(dmg_path, &updates_dir)?;
+    let path = dmg_path
+        .to_str()
+        .ok_or_else(|| "Installer path is not valid UTF-8".to_string())?;
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| format!("Failed to open update image: {e}"))
 }
 
-fn is_trivor_installer_volume(name: &str) -> bool {
-    name == "Trivor" || name.starts_with("Trivor ")
-}
-
-fn resolve_install_target() -> PathBuf {
-    if let Some(current) = current_app_bundle() {
-        return current;
+fn validated_downloaded_dmg(dmg_path: &Path, updates_dir: &Path) -> Result<PathBuf, String> {
+    let invalid = || "Expected a downloaded DMG in the update cache".to_string();
+    if !dmg_path.is_absolute()
+        || !dmg_path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("dmg"))
+        || !fs::symlink_metadata(updates_dir)
+            .map_err(|_| invalid())?
+            .file_type()
+            .is_dir()
+        || !fs::symlink_metadata(dmg_path)
+            .map_err(|_| invalid())?
+            .file_type()
+            .is_file()
+    {
+        return Err(invalid());
     }
-    PathBuf::from("/Applications").join(APP_NAME)
-}
-
-fn current_app_bundle() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let contents_macos = exe.parent()?;
-    if contents_macos.file_name()?.to_str()? != "MacOS" {
-        return None;
-    }
-    let contents = contents_macos.parent()?;
-    if contents.file_name()?.to_str()? != "Contents" {
-        return None;
-    }
-    Some(contents.parent()?.to_path_buf())
-}
-
-fn find_app_bundle(mount_dir: &Path) -> Result<PathBuf, String> {
-    let direct = mount_dir.join(APP_NAME);
-    if direct.is_dir() {
-        return Ok(direct);
+    let updates_dir = updates_dir.canonicalize().map_err(|_| invalid())?;
+    let dmg_path = dmg_path.canonicalize().map_err(|_| invalid())?;
+    // The downloader writes direct children. Exact parent comparison also
+    // rejects traversal, sibling-prefix paths and symlinked subdirectories.
+    if dmg_path.parent() != Some(updates_dir.as_path()) {
+        return Err(invalid());
     }
 
-    for entry in fs::read_dir(mount_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("app") {
-            return Ok(path);
-        }
+    let mut file = File::open(&dmg_path).map_err(|_| invalid())?;
+    let metadata = file.metadata().map_err(|_| invalid())?;
+    if !metadata.is_file() || metadata.len() < 512 {
+        return Err(invalid());
     }
-
-    Err("No application bundle found in update image".to_string())
-}
-
-fn write_install_script(
-    script_path: &Path,
-    parent_pid: u32,
-    source_app: &Path,
-    target_app: &Path,
-    mount_dir: &Path,
-) -> Result<(), String> {
-    let mut script = fs::File::create(script_path).map_err(|e| e.to_string())?;
-    writeln!(script, "#!/bin/bash").map_err(|e| e.to_string())?;
-    writeln!(script, "set -euo pipefail").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "cleanup_trivor_volumes() {{"
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "  local vol").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "  for vol in /Volumes/Trivor /Volumes/Trivor\\ *; do"
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "    [ -e \"$vol\" ] || continue").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "    hdiutil detach \"$vol\" -force -quiet 2>/dev/null || true"
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "  done").map_err(|e| e.to_string())?;
-    writeln!(script, "}}").map_err(|e| e.to_string())?;
-    writeln!(script, "PARENT_PID={parent_pid}").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "while kill -0 \"$PARENT_PID\" 2>/dev/null; do sleep 0.2; done"
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "sleep 0.4").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "ditto {} {}",
-        shell_quote(&source_app.display().to_string()),
-        shell_quote(&target_app.display().to_string())
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "hdiutil detach {} -quiet || hdiutil detach {} -force -quiet || true",
-        shell_quote(&mount_dir.display().to_string()),
-        shell_quote(&mount_dir.display().to_string())
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "cleanup_trivor_volumes").map_err(|e| e.to_string())?;
-    writeln!(
-        script,
-        "open {}",
-        shell_quote(&target_app.display().to_string())
-    )
-    .map_err(|e| e.to_string())?;
-    writeln!(script, "rm -f \"$0\"").map_err(|e| e.to_string())?;
-
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(script_path)
-        .map_err(|e| e.to_string())?
-        .permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(script_path, perms).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn detach_if_mounted(mount_dir: &Path) -> Result<(), String> {
-    if !mount_dir.exists() {
-        return Ok(());
+    // Tauri's hdiutil UDZO images use a 512-byte UDIF trailer. Check its magic,
+    // version and size so a renamed script/executable is not passed to opener.
+    // This is format validation, not an authenticity or signing assertion.
+    let mut trailer = [0u8; 12];
+    file.seek(SeekFrom::End(-512)).map_err(|_| invalid())?;
+    file.read_exact(&mut trailer).map_err(|_| invalid())?;
+    if &trailer[..4] != b"koly"
+        || u32::from_be_bytes(trailer[4..8].try_into().unwrap()) != 4
+        || u32::from_be_bytes(trailer[8..12].try_into().unwrap()) != 512
+    {
+        return Err("Downloaded file is not a supported DMG image".into());
     }
-    let status = Command::new("hdiutil")
-        .args(["detach", "-force", "-quiet"])
-        .arg(mount_dir)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Failed to detach update image".to_string())
-    }
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
+    Ok(dmg_path)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_trivor_installer_volume, shell_quote};
+    use super::validated_downloaded_dmg;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    #[test]
-    fn shell_quote_escapes_single_quotes() {
-        assert_eq!(shell_quote("Trivor.app"), "'Trivor.app'");
-        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    struct TempDir(PathBuf);
+    impl TempDir {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "trivor-update-validation-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn updates(&self) -> PathBuf {
+            let path = self.0.join("updates");
+            fs::create_dir(&path).unwrap();
+            path
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    // Only the format marker is needed here; tests never open or mount this file.
+    fn write_dmg(path: &Path) {
+        let mut data = [0u8; 1024];
+        data[512..516].copy_from_slice(b"koly");
+        data[516..520].copy_from_slice(&4u32.to_be_bytes());
+        data[520..524].copy_from_slice(&512u32.to_be_bytes());
+        fs::write(path, data).unwrap();
     }
 
     #[test]
-    fn detects_trivor_installer_volume_names() {
-        assert!(is_trivor_installer_volume("Trivor"));
-        assert!(is_trivor_installer_volume("Trivor 1"));
-        assert!(!is_trivor_installer_volume("TrivorX"));
-        assert!(!is_trivor_installer_volume("Macintosh HD"));
+    fn accepts_regular_udif_download_with_spaces_and_unicode() {
+        let dir = TempDir::new();
+        let updates = dir.updates();
+        let dmg = updates.join("Trivor 更新 0.4.0.DMG");
+        write_dmg(&dmg);
+        assert_eq!(
+            validated_downloaded_dmg(&dmg, &updates).unwrap(),
+            dmg.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn rejects_outside_traversal_sibling_directories_and_non_dmg_paths() {
+        let dir = TempDir::new();
+        let updates = dir.updates();
+        let outside = dir.0.join("outside.dmg");
+        write_dmg(&outside);
+        assert!(validated_downloaded_dmg(&outside, &updates).is_err());
+        assert!(validated_downloaded_dmg(&updates.join("../outside.dmg"), &updates).is_err());
+        let sibling = dir.0.join("updates-other");
+        fs::create_dir(&sibling).unwrap();
+        let sibling_dmg = sibling.join("Trivor.dmg");
+        write_dmg(&sibling_dmg);
+        assert!(validated_downloaded_dmg(&sibling_dmg, &updates).is_err());
+        let executable = updates.join("installer.app");
+        write_dmg(&executable);
+        assert!(validated_downloaded_dmg(&executable, &updates).is_err());
+        let directory = updates.join("directory.dmg");
+        fs::create_dir(&directory).unwrap();
+        assert!(validated_downloaded_dmg(&directory, &updates).is_err());
+        assert!(validated_downloaded_dmg(&updates.join("missing.dmg"), &updates).is_err());
+    }
+
+    #[test]
+    fn rejects_symlinked_download_and_cache_directory() {
+        use std::os::unix::fs::symlink;
+        let dir = TempDir::new();
+        let updates = dir.updates();
+        let target = updates.join("Trivor.dmg");
+        write_dmg(&target);
+        let link = updates.join("linked.dmg");
+        symlink(&target, &link).unwrap();
+        assert!(validated_downloaded_dmg(&link, &updates).is_err());
+        let linked_cache = dir.0.join("linked-cache");
+        symlink(&updates, &linked_cache).unwrap();
+        assert!(validated_downloaded_dmg(&linked_cache.join("Trivor.dmg"), &linked_cache).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_truncated_or_renamed_executable_downloads() {
+        let dir = TempDir::new();
+        let updates = dir.updates();
+        let dmg = updates.join("Trivor.dmg");
+        for bytes in [
+            Vec::new(),
+            vec![0u8; 511],
+            vec![0u8; 1024],
+            b"#!/bin/sh\necho renamed\n".to_vec(),
+        ] {
+            fs::write(&dmg, bytes).unwrap();
+            assert!(validated_downloaded_dmg(&dmg, &updates).is_err());
+        }
+        write_dmg(&dmg);
+        let mut malformed = fs::read(&dmg).unwrap();
+        malformed[519] = 5; // Unsupported UDIF version.
+        fs::write(&dmg, malformed).unwrap();
+        assert!(validated_downloaded_dmg(&dmg, &updates).is_err());
     }
 }

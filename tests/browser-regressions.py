@@ -5,6 +5,8 @@ Run with Vite listening on 1420:
 Requires Python Playwright and an installed Chromium browser. Native conversion
 and save-dialog behavior are covered separately by the Rust tests.
 """
+import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -56,24 +58,40 @@ INIT = r"""
 const callbacks = new Map(), listeners = new Map();
 let next = 1;
 window.__exports = [];
+window.__viewerSources = [];
+window.__holdExportDialog = false;
+window.__pendingExport = null;
+window.__releaseExportDialog = value => {
+  const finish=window.__pendingExport;
+  window.__pendingExport=null;
+  window.__holdExportDialog=false;
+  finish(value);
+};
 window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
 window.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: {label: 'main'}, currentWebview: {label: 'main'} },
   transformCallback(fn) { const id = next++; callbacks.set(id, fn); return id; },
   unregisterCallback(id) { callbacks.delete(id); },
-  convertFileSrc(path) { return new URL('/fixtures/cube.glb', location.origin).href; },
+  convertFileSrc(path) { window.__viewerSources.push(path); return new URL('/fixtures/cube.glb', location.origin).href; },
   async invoke(cmd, args = {}) {
     if (cmd === 'plugin:event|listen') { listeners.set(args.event, callbacks.get(args.handler)); return next++; }
     if (cmd === 'get_ui_bundle' || cmd === 'set_theme') return window.__bundle;
     if (cmd === 'get_app_info') return {version:'0.3.0', build_date:'2026-06-03', repository:'', homepage:'', license:'MIT'};
     if (cmd === 'complete_startup') return ['/fixtures/cube.glb'];
-    if (cmd === 'normalize_model_path' || cmd === 'resolve_viewer_model_path') return args.path;
+    if (cmd === 'normalize_model_path') return args.path;
+    if (cmd === 'resolve_viewer_model_path') return '/viewer-cache/cube-preview.glb';
+    if (cmd === 'prepare_viewer_model') return {path:'/viewer-cache/cube-preview.glb', level:'original', next_level:null};
+    if (cmd === 'cancel_viewer_preparation') return null;
     if (cmd === 'path_kind') return 'file';
     if (cmd === 'model_file_size') return 2048;
     if (cmd === 'load_model') return {path:args.path, name:'cube.glb', format:'glb', file_size:2048, vertex_count:8, triangle_count:12, mesh_count:1, material_count:1, materials:[], bounds_w:2, bounds_h:1.2, bounds_d:.8};
     if (cmd === 'viewer_cache_size') return 0;
     if (cmd === 'check_for_updates') return {update_available:false, latest_version:'0.3.0'};
-    if (cmd === 'export_model_dialog') { window.__exports.push(args); return '/output/cube.glb'; }
+    if (cmd === 'export_model_dialog') {
+      window.__exports.push(args);
+      if (window.__holdExportDialog) return new Promise(resolve => { window.__pendingExport=resolve; });
+      return '/output/' + args.defaultFilename;
+    }
     if (cmd === 'save_cutout_dialog') return '/output/cube.png';
     throw new Error('Unexpected IPC in smoke test: ' + cmd);
   }
@@ -98,7 +116,106 @@ STATS = r"""async () => {
 }"""
 
 
+def check_model_export(page, format_name, result):
+    event = 'export-model-gltf' if format_name == 'gltf' else 'export-model'
+    before = page.evaluate('window.__exports.length')
+    page.evaluate("event => { window.__holdExportDialog=true; window.__emit('menu-action',event); }", event)
+    page.wait_for_function('window.__app.modelExporting && window.__pendingExport !== null')
+    invocation = page.evaluate('window.__exports.at(-1)')
+    assert invocation['sourcePath'] == '/fixtures/cube.glb', invocation
+    assert invocation['defaultFilename'] == f'cube.{format_name}', invocation
+    assert invocation['format'] == format_name, invocation
+    assert invocation.get('accessRequestId'), invocation
+    # Either format must share the same guard while a real dialog would be pending.
+    page.evaluate("() => { window.__emit('menu-action','export-model'); window.__emit('menu-action','export-model-gltf'); }")
+    assert page.evaluate('window.__exports.length') == before + 1
+    assert page.evaluate('window.__app.modelExporting')
+    page.evaluate('result => window.__releaseExportDialog(result)', result)
+    page.wait_for_function('!window.__app.modelExporting')
+    toast = page.locator('[data-bind=toast]')
+    assert not toast.evaluate("el => el.classList.contains('is-error')")
+    assert toast.evaluate("el => el.classList.contains('is-success')") == (result is not None)
+    if result is not None:
+        assert result in page.locator('[data-bind=toast-text]').inner_text()
+
+
+def check_reopened_gltf(page, path, index):
+    """Load a real backend artifact; do not manufacture a browser-only export."""
+    payload = path.read_bytes()
+    doc = json.loads(payload)
+    views = doc.get('bufferViews', [])
+    compressed_views = [view for view in views
+                        if 'EXT_meshopt_compression' in view.get('extensions', {})]
+    compressed_payload_buffers = {
+        view['extensions']['EXT_meshopt_compression']['buffer'] for view in compressed_views
+    }
+    for section in ('buffers', 'images'):
+        for asset_index, asset in enumerate(doc.get(section, [])):
+            uri = asset.get('uri')
+            assert uri is None or uri.startswith('data:'), (path, section, uri)
+            if section == 'buffers':
+                references = [view for view in views if view.get('buffer') == asset_index]
+                # The meshopt fallback marker is optional. URI-free decoded storage
+                # is valid when every reference is supplied by the compressed data.
+                virtual = (uri is None and references
+                           and asset_index not in compressed_payload_buffers
+                           and all(view in compressed_views for view in references))
+                if virtual:
+                    assert uri is None, (path, asset)
+                else:
+                    assert uri and ';base64,' in uri, (path, asset)
+                    data = base64.b64decode(uri.split(',', 1)[1], validate=True)
+                    assert len(data) == asset['byteLength'], (path, len(data), asset)
+    if 'compressed' in path.stem.lower():
+        assert compressed_views and 'EXT_meshopt_compression' in doc.get('extensionsRequired', []), path
+    if 'obj' in path.stem.lower():
+        assert len(doc.get('materials', [])) == 2 and len(doc.get('images', [])) == 1, path
+    url = f'{BASE}/fixtures/exported-{index}.gltf'
+    page.route(url, lambda route: route.fulfill(body=payload, content_type='model/gltf+json'))
+    stats = page.evaluate("""async url => {
+        const mv=document.querySelector('model-viewer');
+        await new Promise((resolve,reject)=>{
+            const abort=new AbortController();
+            const timer=setTimeout(()=>{abort.abort();reject(new Error('Exported glTF load timed out'));},30000);
+            const finish=callback=>{clearTimeout(timer);abort.abort();callback();};
+            mv.addEventListener('load',()=>finish(resolve),{once:true,signal:abort.signal});
+            mv.addEventListener('error',event=>finish(()=>reject(new Error(event.detail?.sourceError?.message || 'Exported glTF load failed'))),{once:true,signal:abort.signal});
+            mv.src=url;
+        });
+        for(let i=0;i<4;i++) await new Promise(requestAnimationFrame);
+        const scene=mv[Object.getOwnPropertySymbols(mv).find(s=>s.description==='scene')];
+        let triangles=0,meshes=0;
+        const textures=new Set();
+        scene.model.traverse(object=>{
+            if(!object.isMesh)return;
+            meshes++;
+            triangles+=(object.geometry.index?.count ?? object.geometry.attributes.position.count)/3;
+            for(const material of Array.isArray(object.material)?object.material:[object.material]){
+                for(const key of ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap','alphaMap']){
+                    if(material[key]?.image)textures.add(material[key].source);
+                }
+            }
+        });
+        const dimensions=mv.getDimensions();
+        return {loaded:mv.loaded,meshes,triangles,materials:mv.model.materials.length,
+                textureImages:textures.size,dimensions:[dimensions.x,dimensions.y,dimensions.z]};
+    }""", url)
+    assert stats['loaded'] and stats['triangles'] == 12, (path, stats)
+    declared_materials = len(doc.get('materials', []))
+    # A material-free STL export uses glTF's implicit default material; the
+    # renderer may expose that material even though the JSON declares none.
+    assert stats['materials'] in ({declared_materials} if declared_materials else {0, 1}), (path, stats)
+    assert all(abs(actual - expected) < .005 for actual, expected in zip(stats['dimensions'], [2, 1.2, .8])), (path, stats)
+    if doc.get('images'):
+        assert stats['textureImages'] >= 1, (path, stats)
+    print('PASS real self-contained glTF reopens:', str(path), json.dumps(stats), flush=True)
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--reopen-gltf', type=Path, action='append', default=[],
+                        help='Reopen an actual Rust-exported self-contained box fixture (repeatable)')
+    args = parser.parse_args()
     with sync_playwright() as p:
         executable = os.environ.get("TRIVOR_CHROME")
         if not executable and Path('/Applications/Google Chrome.app').exists():
@@ -135,10 +252,13 @@ def main():
             page.keyboard.press('Escape')
             print('PASS live opacity and reset appearance', flush=True)
 
-            page.evaluate("window.__emit('menu-action','export-model')")
-            page.wait_for_function('window.__exports.length === 1')
-            assert page.evaluate('window.__exports[0].sourcePath') == '/fixtures/cube.glb'
-            print('PASS export uses original source path', flush=True)
+            assert page.evaluate("window.__viewerSources.includes('/viewer-cache/cube-preview.glb')")
+            check_model_export(page, 'glb', '/output/cube.glb')
+            check_model_export(page, 'gltf', '/output/cube.gltf')
+            check_model_export(page, 'gltf', None)
+            # A cancelled native dialog must allow a later export to start.
+            check_model_export(page, 'gltf', '/output/cube-after-cancel.gltf')
+            print('PASS GLB/glTF menus use original source, format and filename; success/cancel reset busy state', flush=True)
 
             page.locator('[data-action=toggle-cutout-mode]').click()
             page.wait_for_function("document.querySelector('.cutout-frame-guide') && !document.querySelector('.cutout-frame-guide').classList.contains('hidden')", timeout=15000)
@@ -192,6 +312,8 @@ def main():
             }""")
             assert cancelled
             print('PASS cancelled export cannot reopen stale preview', flush=True)
+            for index, path in enumerate(args.reopen_gltf):
+                check_reopened_gltf(page, path, index)
             assert not errors, errors
             print('PASS no uncaught browser errors', flush=True)
         finally:

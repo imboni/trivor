@@ -1,11 +1,8 @@
 use std::path::Path;
 
-use glam::Vec3;
-use trivor_core::{MaterialSummary, SceneSummary};
+use trivor_core::SceneSummary;
 
-use crate::gltf_inspect::{
-    gltf_skips_rust_repack, inspect_scene_summary_light, needs_lightweight_summary,
-};
+use crate::gltf_inspect::inspect_scene_summary_light;
 use crate::LoadError;
 
 pub type ProgressFn<'a> = dyn Fn(u8) + Send + Sync + 'a;
@@ -22,114 +19,77 @@ pub fn inspect_gltf_summary(
     };
 
     report(0);
-    let path = path.canonicalize().map_err(|e| LoadError::Io {
-        path: path.to_path_buf(),
-        message: e.to_string(),
-    })?;
-
-    let file_size = crate::limits::file_size(&path)?;
-
-    if gltf_skips_rust_repack(&path)? || needs_lightweight_summary(&path, file_size) {
-        report(40);
-        let summary = inspect_scene_summary_light(&path)?;
-        report(100);
-        return Ok(summary);
-    }
-
-    report(18);
-    let gltf = gltf::Gltf::open(&path).map_err(|e| LoadError::Parse {
-        path: path.clone(),
-        message: e.to_string(),
-    })?;
-
-    report(55);
-
-    let mut vertex_count = 0u64;
-    let mut triangle_count = 0u64;
-    let mut bounds_min = Vec3::splat(f32::INFINITY);
-    let mut bounds_max = Vec3::splat(f32::NEG_INFINITY);
-    let mut has_bounds = false;
-
-    for mesh in gltf.meshes() {
-        for prim in mesh.primitives() {
-            if let Some(indices) = prim.indices() {
-                triangle_count += indices.count() as u64 / 3;
-            } else if let Some((_, accessor)) = prim
-                .attributes()
-                .find(|(s, _)| *s == gltf::Semantic::Positions)
-            {
-                triangle_count += accessor.count() as u64 / 3;
-            }
-
-            for (semantic, accessor) in prim.attributes() {
-                if semantic != gltf::Semantic::Positions {
-                    continue;
-                }
-                vertex_count += accessor.count() as u64;
-                if let (Some(min), Some(max)) = (accessor.min(), accessor.max()) {
-                    if let (Some(mn), Some(mx)) = (json_vec3(&min), json_vec3(&max)) {
-                        bounds_min = bounds_min.min(mn);
-                        bounds_max = bounds_max.max(mx);
-                        has_bounds = true;
-                    }
-                }
-            }
-        }
-    }
-
-    let bounds_size = if has_bounds {
-        bounds_max - bounds_min
-    } else {
-        Vec3::ZERO
-    };
-
-    let materials: Vec<MaterialSummary> = gltf
-        .materials()
-        .map(|m| {
-            let factor = m.pbr_metallic_roughness().base_color_factor();
-            MaterialSummary {
-                name: m.name().unwrap_or("material").to_string(),
-                base_color: [factor[0], factor[1], factor[2], factor[3]],
-            }
-        })
-        .collect();
-
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("model")
-        .to_string();
-
+    report(40);
+    let summary = inspect_scene_summary_light(path)?;
     report(100);
-
-    Ok(SceneSummary {
-        name,
-        path: path.display().to_string(),
-        format: path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("gltf")
-            .to_ascii_lowercase(),
-        file_size,
-        mesh_count: gltf.meshes().len() as u32,
-        material_count: materials.len() as u32,
-        vertex_count,
-        triangle_count,
-        bounds_w: bounds_size.x,
-        bounds_h: bounds_size.y,
-        bounds_d: bounds_size.z,
-        materials,
-    })
+    Ok(summary)
 }
 
-fn json_vec3(value: &gltf::json::Value) -> Option<Vec3> {
-    let arr = value.as_array()?;
-    if arr.len() < 3 {
-        return None;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::borrow::Cow;
+    use std::sync::Mutex;
+
+    #[test]
+    fn ordinary_gltf_and_glb_use_transformed_header_metadata_and_report_progress() {
+        let dir = crate::cache::tests::TempDir::new();
+        let positions = [
+            [0.0_f32, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [2.0, 3.0, 4.0],
+        ];
+        let bin: Vec<u8> = positions
+            .iter()
+            .flatten()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+        let mut doc = serde_json::json!({
+            "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+            "nodes":[{"mesh":0,"scale":[2,3,4]}],
+            "meshes":[{"primitives":[{"attributes":{"POSITION":0},"mode":5,"material":0}]}],
+            "materials":[{}],
+            "buffers":[{"byteLength":bin.len()}],
+            "bufferViews":[{"buffer":0,"byteLength":bin.len()}],
+            "accessors":[{"bufferView":0,"componentType":5126,"count":4,"type":"VEC3","min":[0,0,0],"max":[2,3,4]}]
+        });
+        let glb = gltf::binary::Glb {
+            header: gltf::binary::Header {
+                magic: *b"glTF",
+                version: 2,
+                length: 0,
+            },
+            json: Cow::Owned(serde_json::to_vec(&doc).unwrap()),
+            bin: Some(Cow::Borrowed(&bin)),
+        };
+        std::fs::write(dir.0.join("ordinary.glb"), glb.to_vec().unwrap()).unwrap();
+        doc["buffers"][0]["uri"] = serde_json::json!("geometry.bin");
+        std::fs::write(
+            dir.0.join("ordinary.gltf"),
+            serde_json::to_vec(&doc).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.0.join("geometry.bin"), bin).unwrap();
+
+        for extension in ["gltf", "glb"] {
+            let events = Mutex::new(Vec::new());
+            let progress = |value| events.lock().unwrap().push(value);
+            let summary = inspect_gltf_summary(
+                &dir.0.join(format!("ordinary.{extension}")),
+                Some(&progress),
+            )
+            .unwrap();
+            assert_eq!((summary.vertex_count, summary.triangle_count), (4, 2));
+            assert_eq!(
+                (summary.bounds_w, summary.bounds_h, summary.bounds_d),
+                (4.0, 9.0, 16.0)
+            );
+            assert_eq!(summary.materials[0].base_color, [1.0; 4]);
+            let events = events.into_inner().unwrap();
+            assert_eq!(events.first(), Some(&0));
+            assert_eq!(events.last(), Some(&100));
+            assert!(events.windows(2).all(|pair| pair[0] <= pair[1]));
+        }
     }
-    Some(Vec3::new(
-        arr[0].as_f64()? as f32,
-        arr[1].as_f64()? as f32,
-        arr[2].as_f64()? as f32,
-    ))
 }

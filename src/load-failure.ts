@@ -1,19 +1,13 @@
 import type { UiBundle } from "./types";
-import { formatBytes, formatCompactCount } from "./format";
+import { formatBytes } from "./format";
 import { gltfLoadHint } from "./model-path";
 
 /** Auto meshopt preview threshold (matches Rust `PREVIEW_OPTIMIZE_BYTES`). */
 export const PREVIEW_OPTIMIZE_BYTES = 200 * 1024 * 1024;
 
-/** Typical stable limits (matches Rust `VIEWER_*` in `gltf_inspect.rs`). */
-export const VIEWER_STABLE_MAX_BYTES = PREVIEW_OPTIMIZE_BYTES;
-export const VIEWER_STABLE_MAX_TRIANGLES = 5_000_000;
-export const VIEWER_HARD_MAX_BYTES = 1024 * 1024 * 1024;
-export const VIEWER_HARD_MAX_TRIANGLES = 20_000_000;
-
 export function isPreviewCachePath(viewerPath: string): boolean {
   const name = viewerPath.split(/[/\\]/).pop() ?? viewerPath;
-  return /^preview-v\d+-/.test(name) || name.includes("-preview-");
+  return /^(?:preview|structure|preview-budget|detail-budget)-v\d+-/.test(name) || name.includes("-preview-");
 }
 
 const GENERIC_VIEWER_ERRORS = new Set([
@@ -39,6 +33,15 @@ export function localizeBackendLoadError(raw: string, ui: UiBundle): string | nu
     return ui.error_model_access_denied.replace("{path}", raw.slice(denied.length));
   }
   if (raw.startsWith("IMPORT_FAILED:")) return ui.error_model_import;
+  switch (raw) {
+    case "MODEL_PREPARATION_CANCELLED": return ui.error_model_preparation_cancelled;
+    case "MODEL_PREPARATION_LARGE_FORMAT_UNSUPPORTED": return ui.error_model_large_format;
+    case "MODEL_PREPARATION_UNSUPPORTED_DRACO": return ui.error_model_draco_preview;
+    case "MODEL_PREPARATION_BUDGET_EXCEEDED": return ui.error_model_preview_budget;
+  }
+  if (raw.startsWith("MODEL_PREPARATION_") || raw.startsWith("MODEL_STRUCTURE_")) {
+    return ui.error_model_preparation;
+  }
   if (raw === "GLTFPACK_SIDECAR_MISSING") {
     return ui.error_gltfpack_missing;
   }
@@ -48,6 +51,7 @@ export function localizeBackendLoadError(raw: string, ui: UiBundle): string | nu
     const size = formatBytes(bytes, ui);
     return ui.error_gltfpack_preview_failed.replace("{size}", size);
   }
+  if (raw.startsWith("GLTFPACK_PREVIEW_FAILED:")) return ui.error_model_preparation;
   return null;
 }
 
@@ -67,13 +71,7 @@ function enrichLoadFailureMessage(
     return base;
   }
 
-  const advice = ui.load_export_advice
-    .replace("{stable_size}", formatBytes(VIEWER_STABLE_MAX_BYTES, ui))
-    .replace("{stable_tris}", formatCompactCount(VIEWER_STABLE_MAX_TRIANGLES, ui.locale))
-    .replace("{hard_size}", formatBytes(VIEWER_HARD_MAX_BYTES, ui))
-    .replace("{hard_tris}", formatCompactCount(VIEWER_HARD_MAX_TRIANGLES, ui.locale));
-
-  return `${base}\n\n${advice}`;
+  return `${base}\n\n${ui.load_export_advice}`;
 }
 
 export function resolveLoadFailureMessage(
@@ -86,7 +84,7 @@ export function resolveLoadFailureMessage(
   const raw = err instanceof Error ? err.message : String(err);
   const backend = localizeBackendLoadError(raw, ui);
   if (backend) {
-    if (raw.startsWith("MODEL_ASSETS_ACCESS_")) return backend;
+    if (/^MODEL_(?:ASSETS_ACCESS|PREPARATION|STRUCTURE)_/.test(raw)) return backend;
     return enrichLoadFailureMessage(ui, path, backend, fileSizeForPath);
   }
 

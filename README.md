@@ -27,6 +27,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Inspector** | Vertex / triangle / mesh / material counts; bounding dimensions; material swatches |
 | **Scene aids** | Optional grid floor; model center and axis guides (off by default) |
 | **Cutout export** | Export a transparent-background PNG from the current view; preview, pan/zoom, then save via the native dialog |
+| **Model export** | Save the original model as a self-contained GLB or embedded glTF |
 | **System integration** | Native menu bar; Finder “Open with”; configurable keyboard shortcuts |
 | **Preferences** | Dark, light, or system appearance; English and Simplified Chinese UI |
 
@@ -38,7 +39,9 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Architecture** | Apple Silicon and Intel (universal build from releases) |
 | **Formats** | `.gltf` (JSON + sidecar `.bin` / textures) and `.glb` (single file) |
 
-> **Note:** Keep `.gltf` sidecar files in the same folder. Models **≥ 200 MB** use an automatic simplified preview — see [docs/large-models.md](docs/large-models.md).
+The current development build was verified on macOS 27.0.1 (Apple Silicon) using SDK 27.0. See [compatibility checks and limits](tests/README.md#macos-27-compatibility--2026-10-23).
+
+> **Note:** Keep `.gltf` sidecar files in the same folder. Large GLB/glTF models show a structure overview, then progressively finer previews, with cancellation. A roughly **2 GB** geometry fixture has been tested. These remain simplified previews; see [budgets and limits](docs/large-models.md).
 
 ## Installation
 
@@ -66,6 +69,13 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 - Hover a row for **Show in Finder** and **Remove from list**.
 - Right-click for **Refresh folder** or **Refresh library**.
 - **Clear list** removes all entries without deleting files on disk.
+
+### Export models
+
+- **File → Export GLB…** (`⌘⇧E`) saves a self-contained binary model.
+- **File → Export glTF (Embedded)…** saves one `.gltf` JSON file with buffers and textures embedded; no companion folder is needed.
+- Both exports support GLB, glTF, OBJ and STL sources. They use the original model rather than a simplified preview; scene tint and opacity are preview/cutout settings and do not alter the exported model.
+- Embedded glTF uses base64 for binary resources, so it is usually larger than GLB. OBJ/STL exports retain the geometry and materials supported by their import conversion.
 
 ### Viewport
 
@@ -175,6 +185,7 @@ Trivor is built on open-source components. The table below lists **direct** depe
 |----------|----------------|---------|---------|
 | [Tauri](https://tauri.app/) 2 | Native macOS shell, IPC, bundling | MIT / Apache-2.0 | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | [@google/model-viewer](https://modelviewer.dev/) | 3D viewport web component | Apache-2.0 | [google/model-viewer](https://github.com/google/model-viewer) |
+| [Basis Universal](https://github.com/BinomialLLC/basis_universal) | Bundled offline KTX2 texture transcoder | Apache-2.0 | [License](public/decoders/basis/LICENSE) |
 | [Three.js](https://threejs.org/) | WebGL rendering (via model-viewer; scene grid and guides) | MIT | [mrdoob/three.js](https://github.com/mrdoob/three.js) |
 | [gltf](https://crates.io/crates/gltf) (Rust) | glTF / GLB parsing, inspection, and packing | MIT / Apache-2.0 | [gltf-rs/gltf](https://github.com/gltf-rs/gltf) |
 | [meshoptimizer / gltfpack](https://github.com/zeux/meshoptimizer) | Simplified meshopt preview for models ≥ 200 MB | MIT | [zeux/meshoptimizer](https://github.com/zeux/meshoptimizer) |

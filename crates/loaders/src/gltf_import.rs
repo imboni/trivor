@@ -3,6 +3,7 @@
 use crate::cache;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::AtomicBool;
 
 use crate::gltf_loader::inspect_gltf_summary;
 use crate::gltf_optimize::resolve_gltfpack;
@@ -41,29 +42,27 @@ fn run_gltfpack_import(source: &Path, dest: &Path) -> Result<(), LoadError> {
         })?;
     }
 
-    let output = Command::new(&gltfpack)
+    let mut command = Command::new(&gltfpack);
+    command
         .arg("-i")
         .arg(source)
         .arg("-o")
         .arg(dest)
         .arg("-cc")
-        .arg("-noq")
-        .output()
+        .arg("-noq");
+    crate::gltf_optimize::run_cancellable(&mut command, source, 0, &AtomicBool::new(false))
         .map_err(|e| {
             tracing::warn!(path = %source.display(), %e, "failed to run gltfpack import");
             import_failed_error(source, "gltfpack")
         })?;
 
-    if output.status.success() && cache::valid_glb(dest) {
+    if cache::valid_glb(dest) {
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
     tracing::warn!(
         path = %source.display(),
-        exit = output.status.code().unwrap_or(-1),
-        stderr = %stderr.trim(),
-        "gltfpack import failed"
+        "gltfpack import produced an invalid GLB"
     );
     Err(import_failed_error(source, "gltfpack"))
 }

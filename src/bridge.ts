@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AppInfo, ClearCacheResult, ModelListEntry, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
+import type { AppInfo, ClearCacheResult, ModelExportFormat, ModelListEntry, ModelLoadProgress, PreparedViewerModel, SceneSummary, UiBundle, UpdateCheckResult } from "./types";
 
 export function getUiBundle(): Promise<UiBundle> {
   return invoke("get_ui_bundle");
@@ -50,15 +50,23 @@ export function resolveViewerModelPath(path: string, accessRequestId?: string): 
   return invoke("resolve_viewer_model_path", { path, accessRequestId });
 }
 
-export function onLoadProgress(handler: (percent: number) => void): Promise<() => void> {
-  return listen<{ percent: number }>("load-progress", (e) => {
-    handler(e.payload.percent);
+export function prepareViewerModel(path: string, accessRequestId: string, level?: "structure" | "preview" | "detail"): Promise<PreparedViewerModel> {
+  return invoke("prepare_viewer_model", { path, accessRequestId, level });
+}
+
+export function cancelViewerPreparation(accessRequestId: string): Promise<void> {
+  return invoke("cancel_viewer_preparation", { accessRequestId });
+}
+
+export function onLoadProgress(handler: (progress: ModelLoadProgress) => void): Promise<() => void> {
+  return listen<ModelLoadProgress>("load-progress", (e) => {
+    handler(e.payload);
   });
 }
 
-export function onPackProgress(handler: (percent: number) => void): Promise<() => void> {
-  return listen<{ percent: number }>("pack-progress", (e) => {
-    handler(e.payload.percent);
+export function onPackProgress(handler: (progress: ModelLoadProgress) => void): Promise<() => void> {
+  return listen<ModelLoadProgress>("pack-progress", (e) => {
+    handler(e.payload);
   });
 }
 
@@ -111,9 +119,10 @@ export function openExternalUrl(url: string): Promise<void> {
 export function exportModelDialog(
   defaultFilename: string,
   sourcePath: string,
+  format: ModelExportFormat = "glb",
 ): Promise<string | null> {
   return invoke("export_model_dialog", {
-    defaultFilename, sourcePath, accessRequestId: crypto.randomUUID(),
+    defaultFilename, sourcePath, format, accessRequestId: crypto.randomUUID(),
   });
 }
 

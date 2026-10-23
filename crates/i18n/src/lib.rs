@@ -51,6 +51,8 @@ impl I18n {
             (_, MessageKey::ModelAssetsFolderTitle) => "Select the model's folder to read BIN files, materials, and textures",
             (Locale::ZhHans, MessageKey::GlbDialogFilter) => "GLB 模型",
             (_, MessageKey::GlbDialogFilter) => "GLB Model",
+            (Locale::ZhHans, MessageKey::GltfDialogFilter) => "glTF 模型（单文件）",
+            (_, MessageKey::GltfDialogFilter) => "glTF Model (Embedded)",
             (Locale::ZhHans, MessageKey::PngDialogFilter) => "PNG 图像",
             (_, MessageKey::PngDialogFilter) => "PNG Image",
             (Locale::ZhHans, MessageKey::OpenFile) => "打开…",
@@ -113,17 +115,17 @@ impl I18n {
             (_, MessageKey::DownloadUpdate) => "Download Update",
             (Locale::ZhHans, MessageKey::UpdateBannerTitle) => "新版本 v{version} 已发布",
             (_, MessageKey::UpdateBannerTitle) => "Version {version} is ready",
-            (Locale::ZhHans, MessageKey::UpdateBannerBody) => "下载后将自动安装并重启应用。",
-            (_, MessageKey::UpdateBannerBody) => "Download to install silently and restart the app.",
+            (Locale::ZhHans, MessageKey::UpdateBannerBody) => "下载后会打开安装镜像。请在 Finder 中将 Trivor 拖入“应用程序”完成安装；当前应用会保持运行。",
+            (_, MessageKey::UpdateBannerBody) => "After downloading, the disk image opens in Finder. Drag Trivor into Applications to install; the current app stays open.",
             (Locale::ZhHans, MessageKey::UpdateDismiss) => "暂不更新",
             (_, MessageKey::UpdateDismiss) => "Not Now",
             (Locale::ZhHans, MessageKey::UpdateDownloading) => "正在下载… {percent}%",
             (_, MessageKey::UpdateDownloading) => "Downloading… {percent}%",
-            (Locale::ZhHans, MessageKey::UpdateDownloadComplete) => "下载完成，正在安装更新…",
-            (_, MessageKey::UpdateDownloadComplete) => "Download complete. Installing update…",
-            (Locale::ZhHans, MessageKey::UpdateDownloadFailed) => "应用内下载失败，已在浏览器打开发布页。",
+            (Locale::ZhHans, MessageKey::UpdateDownloadComplete) => "安装镜像已打开，请在 Finder 中将 Trivor 拖入“应用程序”。",
+            (_, MessageKey::UpdateDownloadComplete) => "Installer opened. Drag Trivor into Applications in Finder.",
+            (Locale::ZhHans, MessageKey::UpdateDownloadFailed) => "无法下载或打开安装镜像，正在浏览器中打开发布页…",
             (_, MessageKey::UpdateDownloadFailed) => {
-                "In-app download failed. Opening the release page…"
+                "Couldn't download or open the installer. Opening the release page…"
             }
             (Locale::ZhHans, MessageKey::ViewReleaseNotes) => "发行说明",
             (_, MessageKey::ViewReleaseNotes) => "Release Notes",
@@ -143,6 +145,8 @@ impl I18n {
             (_, MessageKey::MenuOpenFolder) => "Open Folder…",
             (Locale::ZhHans, MessageKey::MenuExportModel) => "导出 GLB…",
             (_, MessageKey::MenuExportModel) => "Export GLB…",
+            (Locale::ZhHans, MessageKey::MenuExportModelGltf) => "导出 glTF（单文件）…",
+            (_, MessageKey::MenuExportModelGltf) => "Export glTF (Embedded)…",
             (Locale::ZhHans, MessageKey::MenuFit) => "适应窗口",
             (_, MessageKey::MenuFit) => "Fit to View",
             (Locale::ZhHans, MessageKey::MenuQuit) => "退出 Trivor",
@@ -203,6 +207,22 @@ impl I18n {
             }
             (Locale::ZhHans, MessageKey::LoadingRendering) => "正在渲染",
             (_, MessageKey::LoadingRendering) => "Rendering",
+            (Locale::ZhHans, MessageKey::LoadingStructurePreview) => "结构概览（边界框）",
+            (_, MessageKey::LoadingStructurePreview) => "Structure overview (bounding boxes)",
+            (Locale::ZhHans, MessageKey::LoadingModelPreview) => "正在准备几何预览…",
+            (_, MessageKey::LoadingModelPreview) => "Preparing geometry preview…",
+            (Locale::ZhHans, MessageKey::LoadingModelDetails) => "预览已就绪，正在加载更多细节…",
+            (_, MessageKey::LoadingModelDetails) => "Preview ready. Loading more detail…",
+            (Locale::ZhHans, MessageKey::ModelDetailReady) => "细节预览（已简化）",
+            (_, MessageKey::ModelDetailReady) => "Detailed preview (simplified)",
+            (Locale::ZhHans, MessageKey::ModelPreviewReady) => "几何预览（已简化）",
+            (_, MessageKey::ModelPreviewReady) => "Geometry preview (simplified)",
+            (Locale::ZhHans, MessageKey::ModelDetailFailed) => "未能加载更多细节，已保留当前预览。",
+            (_, MessageKey::ModelDetailFailed) => "Could not load more detail. Your current preview is still available.",
+            (Locale::ZhHans, MessageKey::StopRefinement) => "停止细化",
+            (_, MessageKey::StopRefinement) => "Stop refining",
+            (Locale::ZhHans, MessageKey::ModelPreviewStopped) => "已停止细化，保留当前预览。",
+            (_, MessageKey::ModelPreviewStopped) => "Refinement stopped. Keeping the current preview.",
             (Locale::ZhHans, MessageKey::ErrorFolderEmpty) => {
                 "该文件夹内没有 glTF / GLB 模型"
             }
@@ -241,6 +261,36 @@ impl I18n {
             (_, MessageKey::ErrorGltfpackPreviewFailed) => {
                 "Original file: about {size}. Could not build a simplified preview.\n\nExport a smaller GLB (smaller textures, fewer polygons) or free disk space, then try again."
             }
+            (Locale::ZhHans, MessageKey::ErrorModelPreparationCancelled) => {
+                "已取消模型预览。重新打开模型可重试。"
+            }
+            (_, MessageKey::ErrorModelPreparationCancelled) => {
+                "Model preview was cancelled. Reopen the model to try again."
+            }
+            (Locale::ZhHans, MessageKey::ErrorModelLargeFormat) => {
+                "超大 OBJ/STL 暂不支持直接预览。请先转换为 GLB/glTF 后打开。"
+            }
+            (_, MessageKey::ErrorModelLargeFormat) => {
+                "Very large OBJ/STL models cannot be previewed directly. Convert the model to GLB/glTF before opening it."
+            }
+            (Locale::ZhHans, MessageKey::ErrorModelDracoPreview) => {
+                "此模型需要简化，但目前无法简化 Draco 压缩数据。请先导出为未使用 Draco 压缩的 GLB/glTF，或降低模型复杂度后重试。"
+            }
+            (_, MessageKey::ErrorModelDracoPreview) => {
+                "This model needs simplification, but Draco-compressed data cannot currently be simplified. Export GLB/glTF without Draco compression, or reduce the model's complexity and try again."
+            }
+            (Locale::ZhHans, MessageKey::ErrorModelPreviewBudget) => {
+                "模型简化后仍超出预览预算。请减少面数、实例数量或贴图分辨率后重试。"
+            }
+            (_, MessageKey::ErrorModelPreviewBudget) => {
+                "The simplified model still exceeds the preview budget. Reduce polygon counts, instance counts, or texture resolution and try again."
+            }
+            (Locale::ZhHans, MessageKey::ErrorModelPreparation) => {
+                "无法生成模型预览。请检查模型及其引用资源，或降低模型复杂度后重新打开。"
+            }
+            (_, MessageKey::ErrorModelPreparation) => {
+                "Could not prepare the model preview. Check the model and its referenced resources, or reduce its complexity and reopen it."
+            }
             (Locale::ZhHans, MessageKey::ErrorLargeModelHint) => {
                 "原文件约 {size}，将先自动生成简化版再打开。"
             }
@@ -268,10 +318,10 @@ impl I18n {
                 "Original file: about {size}. The viewer cannot load this file."
             }
             (Locale::ZhHans, MessageKey::LoadExportAdvice) => {
-                "建议导出：单文件 ≤ {stable_size}、三角面 ≤ {stable_tris} 以内较稳；超过 {hard_size} 或 {hard_tris} 时可能无法显示（贴图过大请先缩小贴图分辨率）。"
+                "大模型会尝试生成简化预览，不会加载完整细节。能否预览取决于模型复杂度及可用内存；处理原始文件仍可能占用较多内存。可减少面数、实例数量和贴图分辨率后重试。"
             }
             (_, MessageKey::LoadExportAdvice) => {
-                "Export guide: ≤ {stable_size} and ≤ {stable_tris} triangles usually works; above {hard_size} or {hard_tris} may fail (resize textures if the file stays large)."
+                "Large models use simplified previews rather than full detail. Preview availability depends on model complexity and available memory; processing the original file can still require substantial memory. Reduce polygon counts, instance counts, and texture resolution, then try again."
             }
             (Locale::ZhHans, MessageKey::ToolZoomIn) => "放大 (+)",
             (_, MessageKey::ToolZoomIn) => "Zoom in (+)",
@@ -463,6 +513,7 @@ pub enum MessageKey {
     FileDialogFilter,
     ModelAssetsFolderTitle,
     GlbDialogFilter,
+    GltfDialogFilter,
     PngDialogFilter,
     OpenFile,
     OpenFolder,
@@ -471,6 +522,7 @@ pub enum MessageKey {
     MenuOpen,
     MenuOpenFolder,
     MenuExportModel,
+    MenuExportModelGltf,
     MenuFit,
     MenuQuit,
     Settings,
@@ -531,6 +583,14 @@ pub enum MessageKey {
     LoadingPacking,
     LoadingOptimizingPreview,
     LoadingRendering,
+    LoadingStructurePreview,
+    LoadingModelPreview,
+    LoadingModelDetails,
+    ModelDetailReady,
+    ModelPreviewReady,
+    ModelDetailFailed,
+    StopRefinement,
+    ModelPreviewStopped,
     ErrorFolderEmpty,
     LibraryLimit,
     ErrorUnknownFileType,
@@ -538,6 +598,11 @@ pub enum MessageKey {
     ErrorGltfSidecarHint,
     ErrorGltfpackMissing,
     ErrorGltfpackPreviewFailed,
+    ErrorModelPreparationCancelled,
+    ErrorModelLargeFormat,
+    ErrorModelDracoPreview,
+    ErrorModelPreviewBudget,
+    ErrorModelPreparation,
     ErrorLargeModelHint,
     LargeModelPreviewNotice,
     ErrorViewerLoad,
@@ -700,6 +765,14 @@ pub struct UiBundle {
     pub loading_packing: String,
     pub loading_optimizing_preview: String,
     pub loading_rendering: String,
+    pub loading_structure_preview: String,
+    pub loading_model_preview: String,
+    pub loading_model_details: String,
+    pub model_detail_ready: String,
+    pub model_preview_ready: String,
+    pub model_detail_failed: String,
+    pub stop_refinement: String,
+    pub model_preview_stopped: String,
     pub error_folder_empty: String,
     pub library_limit: String,
     pub error_unknown_file_type: String,
@@ -707,6 +780,11 @@ pub struct UiBundle {
     pub error_gltf_sidecar_hint: String,
     pub error_gltfpack_missing: String,
     pub error_gltfpack_preview_failed: String,
+    pub error_model_preparation_cancelled: String,
+    pub error_model_large_format: String,
+    pub error_model_draco_preview: String,
+    pub error_model_preview_budget: String,
+    pub error_model_preparation: String,
     pub error_large_model_hint: String,
     pub large_model_preview_notice: String,
     pub error_viewer_load: String,
@@ -891,6 +969,14 @@ impl UiBundle {
             loading_packing: t(MessageKey::LoadingPacking),
             loading_optimizing_preview: t(MessageKey::LoadingOptimizingPreview),
             loading_rendering: t(MessageKey::LoadingRendering),
+            loading_structure_preview: t(MessageKey::LoadingStructurePreview),
+            loading_model_preview: t(MessageKey::LoadingModelPreview),
+            loading_model_details: t(MessageKey::LoadingModelDetails),
+            model_detail_ready: t(MessageKey::ModelDetailReady),
+            model_preview_ready: t(MessageKey::ModelPreviewReady),
+            model_detail_failed: t(MessageKey::ModelDetailFailed),
+            stop_refinement: t(MessageKey::StopRefinement),
+            model_preview_stopped: t(MessageKey::ModelPreviewStopped),
             error_folder_empty: t(MessageKey::ErrorFolderEmpty),
             library_limit: t(MessageKey::LibraryLimit),
             error_unknown_file_type: t(MessageKey::ErrorUnknownFileType),
@@ -898,6 +984,11 @@ impl UiBundle {
             error_gltf_sidecar_hint: t(MessageKey::ErrorGltfSidecarHint),
             error_gltfpack_missing: t(MessageKey::ErrorGltfpackMissing),
             error_gltfpack_preview_failed: t(MessageKey::ErrorGltfpackPreviewFailed),
+            error_model_preparation_cancelled: t(MessageKey::ErrorModelPreparationCancelled),
+            error_model_large_format: t(MessageKey::ErrorModelLargeFormat),
+            error_model_draco_preview: t(MessageKey::ErrorModelDracoPreview),
+            error_model_preview_budget: t(MessageKey::ErrorModelPreviewBudget),
+            error_model_preparation: t(MessageKey::ErrorModelPreparation),
             error_large_model_hint: t(MessageKey::ErrorLargeModelHint),
             large_model_preview_notice: t(MessageKey::LargeModelPreviewNotice),
             error_viewer_load: t(MessageKey::ErrorViewerLoad),

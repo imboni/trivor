@@ -27,3 +27,18 @@ test("configured local meshopt script exists and decodes compressed glTF indices
   decoder.decodeGltfBuffer(new Uint8Array(decoded.buffer), 12, 2, encoded, "TRIANGLES");
   assert.deepEqual(Array.from(decoded), [0, 1, 2, 2, 1, 3, 4, 6, 5, 7, 8, 9]);
 });
+
+test("progressive texture previews have an offline Basis transcoder", async () => {
+  const source = readFileSync(new URL("../src/model-viewer-decoders.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const context = vm.createContext({ exports: {} });
+  vm.runInContext(code, context);
+  const location = context.ModelViewerElement.ktx2TranscoderLocation;
+  assert.equal(location, "/decoders/basis/");
+  const script = readFileSync(new URL(`../public${location}basis_transcoder.js`, import.meta.url), "utf8");
+  const wasm = readFileSync(new URL(`../public${location}basis_transcoder.wasm`, import.meta.url));
+  assert.ok(script.includes("BASIS"));
+  assert.ok(await WebAssembly.compile(wasm));
+});

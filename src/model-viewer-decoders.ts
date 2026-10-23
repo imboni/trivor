@@ -18,8 +18,7 @@ const cfg: ModelViewerGlobalConfig = globalScope.ModelViewerElement ?? {};
 cfg.meshoptDecoderLocation = "/decoders/meshopt/meshopt_decoder.js";
 cfg.dracoDecoderLocation ??=
   "https://www.gstatic.com/draco/versioned/decoders/1.5.7/";
-cfg.ktx2TranscoderLocation ??=
-  "https://www.gstatic.com/basis-universal/versioned/2021-04-15-ba1c3e4/";
+cfg.ktx2TranscoderLocation = "/decoders/basis/";
 
 globalScope.ModelViewerElement = cfg;
 

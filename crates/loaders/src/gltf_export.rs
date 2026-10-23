@@ -1,8 +1,9 @@
-//! Lossless GLB packaging, including compressed buffers and extension metadata.
+//! Self-contained glTF / GLB packaging, preserving compressed buffers and extension metadata.
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use base64::Engine;
 use gltf::binary::{Glb, Header};
 use serde_json::{json, Value};
 
@@ -89,7 +90,7 @@ fn image_mime(image: &Value, uri: &str, bytes: &[u8], source: &Path) -> Result<S
     Ok(mime.to_string())
 }
 
-pub(crate) fn pack_gltf(source: &Path) -> Result<Vec<u8>, LoadError> {
+fn read_gltf_document(source: &Path) -> Result<(Value, Option<Vec<u8>>), LoadError> {
     let bytes = std::fs::read(source).map_err(|e| LoadError::Io {
         path: source.to_path_buf(),
         message: e.to_string(),
@@ -100,11 +101,59 @@ pub(crate) fn pack_gltf(source: &Path) -> Result<Vec<u8>, LoadError> {
     } else {
         (bytes, None)
     };
-    let mut doc: Value =
+    let doc: Value =
         serde_json::from_slice(&json_bytes).map_err(|e| parse_error(source, e.to_string()))?;
     if doc["asset"]["version"].as_str() != Some("2.0") {
         return Err(parse_error(source, "expected glTF 2.0"));
     }
+    Ok((doc, blob))
+}
+
+fn virtual_meshopt_buffers(doc: &Value, has_blob: bool) -> Vec<bool> {
+    let buffers = doc["buffers"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let required = doc["extensionsRequired"]
+        .as_array()
+        .is_some_and(|extensions| {
+            extensions
+                .iter()
+                .any(|ext| ext == "EXT_meshopt_compression")
+        });
+    let mut candidates = vec![required; buffers.len()];
+    let mut referenced = vec![false; buffers.len()];
+    for view in doc["bufferViews"].as_array().into_iter().flatten() {
+        let compressed = &view["extensions"]["EXT_meshopt_compression"];
+        if let Some(index) = view["buffer"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+        {
+            if let Some(candidate) = candidates.get_mut(index) {
+                *candidate &= compressed.is_object();
+                referenced[index] = true;
+            }
+        }
+        if let Some(index) = compressed["buffer"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+        {
+            if let Some(candidate) = candidates.get_mut(index) {
+                *candidate = false; // Compressed bytes must come from a real buffer.
+            }
+        }
+    }
+    for (index, buffer) in buffers.iter().enumerate() {
+        // The explicit fallback tag is optional in EXT_meshopt_compression.
+        candidates[index] &= buffer.get("uri").is_none()
+            && !(index == 0 && has_blob)
+            && (referenced[index]
+                || buffer["extensions"]["EXT_meshopt_compression"]["fallback"].as_bool()
+                    == Some(true));
+    }
+    candidates
+}
+
+pub(crate) fn pack_gltf(source: &Path) -> Result<Vec<u8>, LoadError> {
+    let (mut doc, blob) = read_gltf_document(source)?;
+    let virtual_buffers = virtual_meshopt_buffers(&doc, blob.is_some());
     let mut bin = Vec::new();
     let mut mappings = Vec::new();
     let mut fallback_buffers = Vec::new();
@@ -116,10 +165,7 @@ pub(crate) fn pack_gltf(source: &Path) -> Result<Vec<u8>, LoadError> {
             as usize;
         // Meshopt's virtual fallback buffer must remain virtual; allocating it would
         // expand compressed models to their full decoded size during export.
-        if buffer.get("uri").is_none()
-            && !(index == 0 && blob.is_some())
-            && buffer["extensions"]["EXT_meshopt_compression"]["fallback"].as_bool() == Some(true)
-        {
+        if virtual_buffers[index] {
             fallback_buffers.push(buffer.clone());
             mappings.push((fallback_buffers.len(), 0));
             lengths.push(length);
@@ -196,8 +242,7 @@ pub(crate) fn pack_gltf(source: &Path) -> Result<Vec<u8>, LoadError> {
     glb.to_vec().map_err(|e| parse_error(source, e.to_string()))
 }
 
-/// Export the original model, preserving geometry and compressed data without preview simplification.
-pub fn export_model_glb(source: &Path, dest: &Path) -> Result<(), LoadError> {
+fn original_gltf_source(source: &Path) -> Result<PathBuf, LoadError> {
     let source = source.canonicalize().map_err(|e| LoadError::Io {
         path: source.to_path_buf(),
         message: e.to_string(),
@@ -207,28 +252,164 @@ pub fn export_model_glb(source: &Path, dest: &Path) -> Result<(), LoadError> {
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let imported;
-    let gltf = match ext.as_str() {
-        "gltf" | "glb" => &source,
-        "obj" => {
-            imported = crate::gltf_import::import_obj_to_cache(&source, None)?;
-            &imported
-        }
-        "stl" => {
-            imported = crate::gltf_import::import_stl_to_cache(&source, None)?;
-            &imported
-        }
-        _ => return Err(LoadError::UnsupportedFormat(ext)),
-    };
-    // Finish conversion before touching the chosen file, including in-place exports.
-    let bytes = pack_gltf(gltf)?;
+    match ext.as_str() {
+        "gltf" | "glb" => Ok(source),
+        "obj" => crate::gltf_import::import_obj_to_cache(&source, None),
+        "stl" => crate::gltf_import::import_stl_to_cache(&source, None),
+        _ => Err(LoadError::UnsupportedFormat(ext)),
+    }
+}
+
+fn write_export(dest: &Path, bytes: &[u8]) -> Result<(), LoadError> {
     // NSSavePanel grants access to this file, not arbitrary siblings in its directory.
     // Atomic cache writes remain appropriate inside the app's own cache container.
-    std::fs::write(dest, &bytes).map_err(|e| LoadError::Io {
+    std::fs::write(dest, bytes).map_err(|e| LoadError::Io {
         path: dest.to_path_buf(),
         message: e.to_string(),
     })
 }
+
+/// Export the original model, preserving geometry and compressed data without preview simplification.
+pub fn export_model_glb(source: &Path, dest: &Path) -> Result<(), LoadError> {
+    // Finish conversion before touching the chosen file, including in-place exports.
+    let bytes = pack_gltf(&original_gltf_source(source)?)?;
+    write_export(dest, &bytes)
+}
+
+/// Export one glTF JSON file with embedded data, without creating external resource files.
+pub fn export_model_gltf(source: &Path, dest: &Path) -> Result<(), LoadError> {
+    let source = original_gltf_source(source)?;
+    let (mut doc, blob) = read_gltf_document(&source)?;
+    validate_gltf_resources(&doc, &source)?;
+    let virtual_buffers = virtual_meshopt_buffers(&doc, blob.is_some());
+    if let Some(buffers) = doc.get_mut("buffers") {
+        let buffers = buffers
+            .as_array_mut()
+            .ok_or_else(|| parse_error(&source, "buffers must be an array"))?;
+        for (index, buffer) in buffers.iter_mut().enumerate() {
+            let length = buffer["byteLength"]
+                .as_u64()
+                .and_then(|length| usize::try_from(length).ok())
+                .filter(|length| *length > 0)
+                .ok_or_else(|| parse_error(&source, "invalid buffer length"))?;
+            let data = if let Some(uri) = buffer.get("uri") {
+                let uri = uri
+                    .as_str()
+                    .ok_or_else(|| parse_error(&source, "buffer URI must be a string"))?;
+                Cow::Owned(read_asset(&source, uri)?)
+            } else if index == 0 && blob.is_some() {
+                Cow::Borrowed(blob.as_ref().unwrap().as_slice())
+            } else if virtual_buffers[index] {
+                // Keep decoded fallback lengths virtual, even for very large models.
+                continue;
+            } else {
+                return Err(parse_error(&source, "buffer has no URI or GLB payload"));
+            };
+            if data.len() < length {
+                return Err(parse_error(&source, "buffer is shorter than byteLength"));
+            }
+            buffer["uri"] = Value::String(data_uri("application/octet-stream", &data[..length]));
+        }
+    }
+    // Retain every buffer/image index and its extension metadata. Unlike GLB,
+    // self-contained glTF needs no buffer merging or image bufferView conversion.
+    if let Some(images) = doc.get_mut("images") {
+        let images = images
+            .as_array_mut()
+            .ok_or_else(|| parse_error(&source, "images must be an array"))?;
+        for image in images {
+            if let Some(uri) = image.get("uri") {
+                let uri = uri
+                    .as_str()
+                    .ok_or_else(|| parse_error(&source, "image URI must be a string"))?;
+                let data = read_asset(&source, uri)?;
+                let mime = image_mime(image, uri, &data, &source)?;
+                image["uri"] = Value::String(data_uri(&mime, &data));
+            }
+        }
+    }
+    drop(blob);
+    let bytes = serde_json::to_vec_pretty(&doc).map_err(|e| parse_error(&source, e.to_string()))?;
+    drop(doc);
+    write_export(dest, &bytes)
+}
+
+fn data_uri(mime: &str, data: &[u8]) -> String {
+    let mut uri = format!("data:{mime};base64,");
+    base64::engine::general_purpose::STANDARD.encode_string(data, &mut uri);
+    uri
+}
+
+fn validate_gltf_resources(doc: &Value, source: &Path) -> Result<(), LoadError> {
+    // Validate resource structure without rejecting extensions the viewer understands
+    // but gltf-rs does not (for example required meshopt or BasisU extensions).
+    for field in ["buffers", "bufferViews", "images"] {
+        if doc.get(field).is_some_and(|value| !value.is_array()) {
+            return Err(parse_error(source, format!("{field} must be an array")));
+        }
+    }
+    let lengths = doc["buffers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|buffer| {
+            buffer["byteLength"]
+                .as_u64()
+                .filter(|length| *length > 0)
+                .ok_or_else(|| parse_error(source, "invalid buffer length"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let check_view = |view: &Value| -> Result<(), LoadError> {
+        let buffer = view["buffer"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| lengths.get(index))
+            .ok_or_else(|| parse_error(source, "buffer index out of range"))?;
+        let offset = match view.get("byteOffset") {
+            Some(offset) => offset
+                .as_u64()
+                .ok_or_else(|| parse_error(source, "invalid buffer offset"))?,
+            None => 0,
+        };
+        let length = view["byteLength"]
+            .as_u64()
+            .filter(|length| *length > 0)
+            .ok_or_else(|| parse_error(source, "invalid buffer view length"))?;
+        if offset.checked_add(length).map_or(true, |end| end > *buffer) {
+            return Err(parse_error(source, "buffer view out of range"));
+        }
+        Ok(())
+    };
+    for view in doc["bufferViews"].as_array().into_iter().flatten() {
+        check_view(view)?;
+        if let Some(meshopt) = view
+            .get("extensions")
+            .and_then(|v| v.get("EXT_meshopt_compression"))
+        {
+            check_view(meshopt)?;
+        }
+    }
+    let view_count = doc["bufferViews"].as_array().map_or(0, Vec::len);
+    for image in doc["images"].as_array().into_iter().flatten() {
+        match (image.get("uri"), image.get("bufferView")) {
+            (Some(uri), None) if uri.is_string() => {}
+            (None, Some(view))
+                if view.as_u64().is_some_and(|index| index < view_count as u64)
+                    && image["mimeType"].is_string() => {}
+            _ => {
+                return Err(parse_error(
+                    source,
+                    "image must reference a URI or a valid buffer view with MIME type",
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "gltf_export_tests.rs"]
+mod embedded_tests;
 
 #[cfg(test)]
 mod tests {
@@ -249,7 +430,7 @@ mod tests {
         assert!(check_glb_length(4, Some(usize::MAX), source).is_err());
     }
 
-    fn write_standard_cube_fixture(dir: &Path, textured: bool) -> PathBuf {
+    pub(super) fn write_standard_cube_fixture(dir: &Path, textured: bool) -> PathBuf {
         // Match the native fixture that exposed images:null: 8 vertices and 12 faces.
         let positions: [[f32; 3]; 8] = [
             [-1.0, -0.6, -0.4],

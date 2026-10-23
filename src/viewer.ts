@@ -12,6 +12,7 @@ import {
   type SceneGuideSyncOptions,
 } from "./scene-guides";
 import { adjustCameraForViewportInsets, type ViewportInsets } from "./viewport-framing";
+import { getModelScene } from "./model-scene-access";
 
 interface SphericalPosition {
   theta: number;
@@ -125,6 +126,8 @@ function thetaNearCurrent(current: number, target: number): number {
 
 function createModelViewerElement(): ModelViewerElement {
   const element = document.createElement("model-viewer") as ModelViewerElement;
+  // LODs can be large; retain only live scenes, not the library's default five models.
+  (element.constructor as unknown as { modelCacheSize: number }).modelCacheSize = 0;
   element.id = "viewport";
   element.setAttribute("camera-controls", "");
   element.setAttribute("touch-action", "none");
@@ -141,6 +144,28 @@ function createModelViewerElement(): ModelViewerElement {
   element.setAttribute("max-camera-orbit", "auto auto 800%");
   element.disableZoom = false;
   return element;
+}
+
+function releaseViewer(element: ModelViewerElement): void {
+  // Disconnect's built-in disposal is delayed. Release GPU resources immediately,
+  // and again if an already-started decoder finishes after cancellation.
+  const dispose = () => getModelScene(element)?.dispose();
+  const cleanup = () => {
+    element.removeEventListener("load", cleanup);
+    element.removeEventListener("error", cleanup);
+    dispose();
+  };
+  element.addEventListener("load", cleanup, { once: true });
+  element.addEventListener("error", cleanup, { once: true });
+  element.src = null;
+  dispose();
+  element.remove();
+}
+
+function fieldOfViewAttribute(mv: ModelViewerElement, degrees: number): string {
+  const scene = getModelScene(mv);
+  const aspectScale = scene ? Math.tan(scene.adjustedFoV(90) * Math.PI / 360) : 1;
+  return formatFieldOfView(2 * Math.atan(Math.tan(degrees * Math.PI / 360) / aspectScale) * 180 / Math.PI);
 }
 
 function waitFrames(count: number): Promise<void> {
@@ -186,7 +211,7 @@ async function waitForCameraSettled(mv: ModelViewerElement): Promise<void> {
 }
 
 /** Reset camera + turntable before loading another model on the same viewer. */
-async function prepareModelSwap(mv: ModelViewerElement): Promise<void> {
+async function prepareModelSwap(mv: ModelViewerElement, current: () => boolean): Promise<void> {
   mv.resetTurntableRotation(0);
   mv.cameraTarget = "auto auto auto";
   mv.cameraOrbit = "auto auto auto";
@@ -195,6 +220,7 @@ async function prepareModelSwap(mv: ModelViewerElement): Promise<void> {
     mv.src = null;
     await waitFrames(2);
   }
+  if (!current()) return;
   mv.jumpCameraToGoal();
   await mv.updateComplete;
 }
@@ -223,6 +249,12 @@ export class ModelViewport {
   private cursorHidden = false;
   private presentationMode = false;
   private zoomGoalRadius: number | null = null;
+  private refinementGeneration = 0;
+  private refinementViewport: ModelViewport | null = null;
+  private refinementHost: HTMLElement | null = null;
+  private sceneOperation: Promise<void> = Promise.resolve();
+  private guideOptions: SceneGuideSyncOptions | null = null;
+  private appearanceOptions: ModelAppearanceOptions | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -243,6 +275,95 @@ export class ModelViewport {
 
   exportSnapshot(): SavedCamera | null {
     return this.savedCamera ? { ...this.savedCamera } : null;
+  }
+
+  /** Current pose, distinct from the initial pose retained for Reset. */
+  captureLiveCamera(): SavedCamera {
+    const orbit = this.mv.getCameraOrbit();
+    const target = this.mv.getCameraTarget();
+    return { targetX: target.x, targetY: target.y, targetZ: target.z,
+      theta: orbit.theta, phi: orbit.phi, radiusM: orbit.radius,
+      fieldOfViewDeg: this.mv.getFieldOfView(), turntableYaw: this.mv.turntableRotation };
+  }
+
+  private async withSceneLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.sceneOperation;
+    let release!: () => void;
+    this.sceneOperation = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await operation(); }
+    finally { release(); }
+  }
+
+  cancelRefinement(): void {
+    this.refinementGeneration++;
+    this.refinementViewport?.loadAbort?.abort();
+    if (this.refinementViewport) {
+      this.refinementViewport.loadGen++;
+      releaseViewer(this.refinementViewport.mv);
+    }
+    this.refinementViewport = null;
+    this.refinementHost?.remove();
+    this.refinementHost = null;
+  }
+
+  /** Load one replacement while keeping the current model interactive. */
+  async refine(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<boolean> {
+    this.cancelRefinement();
+    const generation = this.refinementGeneration;
+    const previous = this.mv;
+    const wrapper = document.createElement("div");
+    Object.assign(wrapper.style, { position: "absolute", inset: "0", opacity: "0", pointerEvents: "none" });
+    wrapper.setAttribute("aria-hidden", "true");
+    this.host.appendChild(wrapper);
+    const incoming = new ModelViewport(wrapper);
+    incoming.mv.id = "";
+    incoming.mv.setAttribute("loading", "eager");
+    incoming.setFramingInsets(this.framingInsets);
+    this.refinementHost = wrapper;
+    this.refinementViewport = incoming;
+    const current = () => generation === this.refinementGeneration && this.mv === previous;
+    try {
+      await incoming.load(assetUrl, loadErrorMessage);
+      if (!current()) return false;
+      return await this.withSceneLock(async () => {
+        if (!current()) return false;
+        const pose = this.captureLiveCamera();
+        const next = incoming.mv;
+        const rotating = this.isAutoRotateActive();
+        const initial = this.savedCamera;
+        for (const attr of ["min-camera-orbit", "max-camera-orbit"]) {
+          const value = previous.getAttribute(attr);
+          if (value !== null) next.setAttribute(attr, value);
+        }
+        next.resetTurntableRotation(pose.turntableYaw);
+        next.cameraTarget = formatTarget({ x: pose.targetX, y: pose.targetY, z: pose.targetZ });
+        next.cameraOrbit = formatOrbit({ theta: pose.theta, phi: pose.phi, radius: pose.radiusM });
+        next.fieldOfView = fieldOfViewAttribute(next, pose.fieldOfViewDeg);
+        await next.updateComplete;
+        if (!current()) return false;
+        next.jumpCameraToGoal();
+        if (this.guideOptions) applySceneGuidesToModel(next, this.guideOptions, true);
+        if (this.appearanceOptions) applyModelAppearanceToModel(next, this.appearanceOptions, true);
+        this.mv = next;
+        this.savedCamera = initial;
+        this.clearZoomGoal();
+        this.host.appendChild(next);
+        next.id = "viewport";
+        applyScenePresentation(next, this.presentationMode);
+        this.setAutoRotate(rotating);
+        this.applyCursorHidden();
+        releaseViewer(previous);
+        this.refinementViewport = null;
+        this.refinementHost = null;
+        wrapper.remove();
+        return true;
+      });
+    } finally {
+      if (generation === this.refinementGeneration && this.refinementViewport === incoming) {
+        this.cancelRefinement();
+      }
+    }
   }
 
   importSnapshot(snapshot: SavedCamera | null): void {
@@ -275,11 +396,13 @@ export class ModelViewport {
 
   /** Optional grid floor, center marker, and XYZ axes in model space. */
   syncSceneGuides(opts: SceneGuideSyncOptions, force = false): void {
+    this.guideOptions = { ...opts };
     applySceneGuidesToModel(this.mv, opts, force);
   }
 
   /** Global tint and opacity overrides (non-destructive). */
   syncModelAppearance(opts: ModelAppearanceOptions, force = false): void {
+    this.appearanceOptions = { ...opts };
     void applyModelAppearanceToModel(this.mv, opts, force);
   }
 
@@ -319,27 +442,24 @@ export class ModelViewport {
 
   /** Fresh element — only way to fully drop the previous model's camera in WKWebView. */
   private replaceViewerElement(): void {
-    this.mv.remove();
+    releaseViewer(this.mv);
     this.mv = createModelViewerElement();
     this.host.appendChild(this.mv);
     this.applyCursorHidden();
   }
 
   async load(assetUrl: string, loadErrorMessage = "Failed to load model"): Promise<void> {
+    this.cancelRefinement();
     this.clearZoomGoal();
-    await customElements.whenDefined("model-viewer");
+    // Reserve the generation before the first await: clear/stop must also
+    // invalidate loads that have not started the custom element's decoder yet.
     this.loadAbort?.abort();
     const abort = new AbortController();
     this.loadAbort = abort;
     const gen = ++this.loadGen;
     this.savedCamera = null;
-
-    if (this.mv.src && this.mv.src !== assetUrl) {
-      await prepareModelSwap(this.mv);
-    }
-    if (gen !== this.loadGen || abort.signal.aborted) return;
-
     const mv = this.mv;
+    const current = () => gen === this.loadGen && mv === this.mv && !abort.signal.aborted;
 
     const settle = async (): Promise<void> => {
       if (gen !== this.loadGen || mv !== this.mv || !mv.src) return;
@@ -362,6 +482,12 @@ export class ModelViewport {
     };
 
     try {
+      await customElements.whenDefined("model-viewer");
+      if (!current()) return;
+      if (mv.src && mv.src !== assetUrl) {
+        await prepareModelSwap(mv, current);
+      }
+      if (!current()) return;
       await new Promise<void>((resolve, reject) => {
         let done = false;
         const finish = (fn: () => void) => {
@@ -375,7 +501,9 @@ export class ModelViewport {
           fn();
         };
         let modelReady = false;
-        const onReady = () => {
+        const onReady = (event?: Event) => {
+          const url = event ? (event as CustomEvent<{ url?: string }>).detail?.url : undefined;
+          if (url && url !== assetUrl) return;
           if (modelReady) return;
           modelReady = true;
           void settle().finally(() => finish(resolve));
@@ -409,12 +537,14 @@ export class ModelViewport {
         })();
       });
     } finally {
+      abort.abort();
       if (this.loadAbort === abort) this.loadAbort = undefined;
     }
   }
 
   /** Drop the WebGL scene; recreating the element is reliable in WKWebView. */
   clear(): void {
+    this.cancelRefinement();
     this.clearZoomGoal();
     this.loadAbort?.abort();
     this.loadAbort = undefined;
@@ -514,12 +644,14 @@ export class ModelViewport {
     const fov = mv.getFieldOfView();
     mv.cameraTarget = formatTarget(target);
     if (Number.isFinite(fov) && fov > 0) {
-      mv.fieldOfView = formatFieldOfView(fov);
+      mv.fieldOfView = fieldOfViewAttribute(mv, fov);
     }
     mv.cameraOrbit = formatOrbit(orbit);
   }
 
   private async reframeToVisibleArea(mv: ModelViewerElement): Promise<void> {
+    const generation = this.loadGen;
+    const current = () => mv === this.mv && generation === this.loadGen && Boolean(mv.src);
     this.clearZoomGoal();
     mv.setAttribute("min-camera-orbit", "auto auto 8%");
     mv.setAttribute("max-camera-orbit", "auto auto 800%");
@@ -527,7 +659,9 @@ export class ModelViewport {
     mv.cameraOrbit = "auto auto auto";
     mv.fieldOfView = "auto";
     await mv.updateFraming();
+    if (!current()) return;
     await mv.updateComplete;
+    if (!current()) return;
     adjustCameraForViewportInsets(mv, this.framingInsets);
     mv.jumpCameraToGoal();
     this.setZoomBounds(this.savedCamera?.radiusM ?? mv.getCameraOrbit().radius);
@@ -544,7 +678,7 @@ export class ModelViewport {
       z: snap.targetZ,
     });
     if (Number.isFinite(snap.fieldOfViewDeg) && snap.fieldOfViewDeg > 0) {
-      mv.fieldOfView = formatFieldOfView(snap.fieldOfViewDeg);
+      mv.fieldOfView = fieldOfViewAttribute(mv, snap.fieldOfViewDeg);
     }
     mv.cameraOrbit = formatOrbit({
       theta: thetaNearCurrent(current.theta, snap.theta),
@@ -575,14 +709,14 @@ export class ModelViewport {
     guideOpts: SceneGuideSyncOptions,
     options?: CutoutExportOptions,
   ): Promise<Uint8Array> {
-    return exportCutoutPng({
+    return this.withSceneLock(() => exportCutoutPng({
       mv: this.mv,
       guideOpts,
       syncGuides: (opts) => applySceneGuidesToModel(this.mv, opts),
       getPresentation: () => this.presentationMode,
       setPresentation: (enabled) => this.setPresentationMode(enabled),
       options,
-    });
+    }));
   }
 
   private captureInitialCamera(): void {

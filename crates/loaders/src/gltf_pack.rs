@@ -145,31 +145,22 @@ fn open_for_pack(source: &Path) -> Result<(Gltf, Option<PathBuf>), LoadError> {
 }
 
 fn needs_viewer_repack(source: &Path) -> Result<bool, LoadError> {
-    let (gltf, _) = open_for_pack(source)?;
-    let doc = &gltf.document;
-    if doc.extensions_required().any(|e| e == EXT_TEXTURE_WEBP) {
-        return Ok(true);
-    }
-    if doc.extensions_used().any(|e| e == EXT_TEXTURE_WEBP) {
-        return Ok(true);
-    }
-    for image in doc.images() {
-        match image.source() {
-            gltf::image::Source::View { mime_type, .. } if mime_type == "image/webp" => {
-                return Ok(true)
-            }
-            gltf::image::Source::Uri { mime_type, uri } => {
-                if mime_type == Some("image/webp") {
-                    return Ok(true);
-                }
-                if uri.to_ascii_lowercase().ends_with(".webp") {
-                    return Ok(true);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(false)
+    let doc: serde_json::Value = crate::gltf_metadata::read(source)?;
+    Ok(["extensionsUsed", "extensionsRequired"]
+        .into_iter()
+        .any(|key| {
+            doc[key]
+                .as_array()
+                .is_some_and(|values| values.iter().any(|v| v.as_str() == Some(EXT_TEXTURE_WEBP)))
+        })
+        || doc["images"].as_array().is_some_and(|images| {
+            images.iter().any(|image| {
+                image["mimeType"].as_str() == Some("image/webp")
+                    || image["uri"]
+                        .as_str()
+                        .is_some_and(|uri| uri.to_ascii_lowercase().ends_with(".webp"))
+            })
+        }))
 }
 
 fn pack_model_for_viewer(
@@ -367,23 +358,23 @@ pub fn resolve_viewer_model(
 
     match ext.as_str() {
         "gltf" => {
-            if gltf_skips_rust_repack(&source)? {
-                return pack_compressed_to_cache(&source, progress);
-            }
             let stats = inspect_gltf_file(&source)?;
             if needs_preview_optimize(&stats) {
                 return maybe_optimize_preview(&source, &stats, progress);
             }
+            if gltf_skips_rust_repack(&source)? {
+                return pack_compressed_to_cache(&source, progress);
+            }
             pack_to_cache(&source, progress)
         }
         "glb" => {
-            if gltf_skips_rust_repack(&source)? {
-                report_progress(progress, 100);
-                return Ok(source);
-            }
             let stats = inspect_gltf_quick(&source)?;
             if needs_preview_optimize(&stats) {
                 return maybe_optimize_preview(&source, &stats, progress);
+            }
+            if gltf_skips_rust_repack(&source)? {
+                report_progress(progress, 100);
+                return Ok(source);
             }
             if needs_viewer_repack(&source)? {
                 pack_to_cache(&source, progress)
