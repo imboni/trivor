@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.1] - 2026-10-23
+## [0.4.1] - 2026-10-24
 
 ### Added
 
@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Compatibility and limits
 
-- Verified on macOS 27.0.1 / Apple Silicon; minimum macOS 13.0 is unchanged. See [validation scope](tests/README.md#macos-27-compatibility--2026-10-23) — 已在 macOS 27.0.1 / Apple Silicon 实测，最低系统要求仍为 macOS 13.0
-- Large GLB/glTF files use simplified previews; large OBJ/STL and required-Draco optimization retain the documented limits. See [large-model budgets](docs/large-models.md) — 大模型采用简化预览，大型 OBJ/STL 及 Draco 优化限制见[大模型说明](docs/large-models.zh-Hans.md)
+- Verified on macOS 27.0.1 / Apple Silicon; minimum macOS 13.0 is unchanged. See [validation scope](https://github.com/imboni/trivor/blob/v0.4.1/tests/README.md#macos-27-compatibility--2026-10-23) — 已在 macOS 27.0.1 / Apple Silicon 实测，最低系统要求仍为 macOS 13.0
+- Large GLB/glTF files use simplified previews; large OBJ/STL and required-Draco optimization retain the documented limits. See [large-model budgets](https://github.com/imboni/trivor/blob/v0.4.1/docs/large-models.md) — 大模型采用简化预览，大型 OBJ/STL 及 Draco 优化限制见[大模型说明](https://github.com/imboni/trivor/blob/v0.4.1/docs/large-models.zh-Hans.md)
 
 ## [0.4.0] - 2026-09-30
 
