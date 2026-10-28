@@ -1,4 +1,5 @@
 const RELEASES_URL = "https://github.com/imboni/trivor/releases/latest";
+const RELEASE_NOTES_URL = "https://github.com/imboni/trivor/releases/tag/v0.5.0";
 const RELEASES_ALL_URL = "https://github.com/imboni/trivor/releases";
 const REPO_URL = "https://github.com/imboni/trivor";
 const ISSUES_URL = "https://github.com/imboni/trivor/issues";
@@ -6,17 +7,18 @@ const ISSUES_URL = "https://github.com/imboni/trivor/issues";
 const copy = {
   en: {
     metaDescription:
-      "Trivor — a lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect models, and export transparent PNG cutouts.",
+      "Trivor 0.5.0 for macOS: Finder GLB previews and thumbnails, adaptive preview capacity, progressive model loading, and transparent PNG export.",
     screenshotAlt: "Trivor app window showing a 3D model viewer on macOS",
     langToggle: "Switch to Chinese",
     themeToggle: "Toggle theme",
     download: "Download for macOS",
+    releaseNotes: "New in 0.5.0 · Finder previews & thumbnails",
     heroBrandSub: "极视",
     heroTagline: "See every dimension.",
     heroQuote: "Blank as paper—awaiting the stroke of mountains.",
     heroDesc:
-      "A lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect them in seconds, and export transparent PNG cutouts.",
-    heroMeta: "macOS 13+ · glTF / GLB · Free",
+      "Inspect 3D models in a lightweight Mac app, or press Space in Finder for an interactive GLB preview. Keep your assets local.",
+    heroMeta: "macOS 13+ · Apple Silicon & Intel · Free",
     linkFeatures: "Features",
     linkFaq: "FAQ",
     linkGitHub: "GitHub",
@@ -24,22 +26,30 @@ const copy = {
     featureViewTitle: "Interactive viewing",
     featureViewDesc: "Orbit, zoom, and frame models with smooth camera controls.",
     featureBrowseTitle: "Files & folders",
-    featureBrowseDesc: "Open a single model or an entire folder, then switch between files in the sidebar.",
-    featureMacTitle: "Native on macOS",
-    featureMacDesc: "Open from Finder, use the menu bar, and rely on familiar keyboard shortcuts.",
+    featureBrowseDesc: "Open glTF, GLB, OBJ or STL files, browse folders, and package supported assets as GLB or embedded glTF.",
+    featureMacTitle: "Preview right in Finder",
+    featureMacDesc: "Select a self-contained GLB and press Space to rotate, zoom and fit. See model thumbnails directly in Finder.",
     featureCutoutTitle: "Cutout export",
     featureCutoutDesc:
       "Export a transparent PNG from the current view — preview, pan/zoom, then save via the native dialog.",
+    featureAdaptiveTitle: "More room on capable Macs",
+    featureAdaptiveDesc: "Quick Look adjusts capacity to your memory, GPU and system conditions, with four file budgets from 128 to 512 MiB.",
+    featureLargeTitle: "Large models, in stages",
+    featureLargeDesc: "Start with a lightweight overview of large GLB or glTF assets in the app, then load more detail while keeping your view.",
     faqTitle: "FAQ",
     faqQ1: "How do I install Trivor?",
     faqA1: "Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.",
     faqQ2: "macOS says Trivor can't be opened — what should I do?",
     faqA2:
-      "Trivor isn't on the App Store yet. Try opening it once, then go to System Settings → Privacy & Security, scroll down, and click Open Anyway for Trivor. It should launch normally from Applications afterward.",
+      "The current release is ad-hoc signed and has not been notarized by Apple. If macOS blocks it, try opening it once, then go to System Settings → Privacy & Security and choose Open Anyway for Trivor.",
     faqQ3: "Which file formats are supported?",
-    faqA3: "glTF and GLB — the standard formats for real-time 3D content.",
+    faqA3: "The app opens glTF and GLB, and imports OBJ and STL through conversion. Finder previews and thumbnails support self-contained GLB files only.",
     faqQ4: "What are the system requirements?",
-    faqA4: "macOS 13 Ventura or later, on Apple Silicon or Intel.",
+    faqA4: "macOS 13 Ventura or later. The universal app includes Apple Silicon and Intel builds; 0.5.0 was runtime-tested on macOS 27.2 with Apple Silicon.",
+    faqQ6: "How large can a Finder preview be?",
+    faqA6: "Space previews use file budgets of 128, 256, 384 or 512 MiB, selected automatically. Decoded textures, geometry and scene complexity also count; memory or thermal pressure can lower capacity. Background thumbnails keep a 64 MiB file limit. Open larger models in the app for progressive previews.",
+    faqQ7: "How do I enable Finder previews?",
+    faqA7: "Install Trivor 0.5.0 or later in Applications, select a self-contained GLB and press Space. If disabled, search System Settings for Extensions and enable Trivor GLB Preview and Trivor GLB Thumbnail under Quick Look. Other GLB extensions may affect which preview macOS uses.",
     faqQ5: "Where can I find previous releases?",
     faqA5: "Browse all releases on GitHub",
     footerCopy: "Copyright © 2026 imboni and contributors.",
@@ -47,16 +57,17 @@ const copy = {
     footerIssues: "Feedback",
   },
   zh: {
-    metaDescription: "Trivor（极视）— macOS 轻量 3D 模型查看器。打开 glTF / GLB，查看模型，导出透明背景 PNG 抠图。",
+    metaDescription: "Trivor（极视）0.5.0 — macOS 轻量 3D 模型查看器。访达 GLB 预览与缩略图、硬件自适应容量、大模型渐进加载及透明 PNG 导出。",
     screenshotAlt: "Trivor macOS 应用窗口，展示 3D 模型查看界面",
     langToggle: "Switch to English",
     themeToggle: "切换主题",
     download: "下载 macOS 版",
+    releaseNotes: "0.5.0 新功能 · 访达预览与缩略图",
     heroBrandSub: "极视",
     heroTagline: "所见即三维。",
     heroQuote: "空阔如纸，等一笔山河。",
-    heroDesc: "macOS 上的轻量 3D 模型查看器。打开文件，看一眼，需要时一键导出透明 PNG 抠图。",
-    heroMeta: "macOS 13+ · glTF / GLB · 免费",
+    heroDesc: "在轻量 Mac 应用中查看三维模型，也可在访达按空格直接预览 GLB，旋转、缩放。模型始终在本地处理。",
+    heroMeta: "macOS 13+ · Apple Silicon 与 Intel · 免费",
     linkFeatures: "功能",
     linkFaq: "常见问题",
     linkGitHub: "GitHub",
@@ -64,21 +75,29 @@ const copy = {
     featureViewTitle: "流畅查看",
     featureViewDesc: "旋转、缩放、一键框选，怎么看都顺手。",
     featureBrowseTitle: "文件与文件夹",
-    featureBrowseDesc: "打开单个模型或整个目录，在侧栏里快速切换。",
-    featureMacTitle: "融入 Mac",
-    featureMacDesc: "原生应用体验 — 访达打开、菜单栏、熟悉的快捷键。",
+    featureBrowseDesc: "打开 glTF、GLB、OBJ 或 STL，浏览整个文件夹，并将支持的资产打包导出为 GLB 或单文件 glTF。",
+    featureMacTitle: "访达里，空格即预览",
+    featureMacDesc: "选中自包含 GLB，按空格即可旋转、缩放和适应视图；访达中也能直接看到模型缩略图。",
     featureCutoutTitle: "抠图导出",
     featureCutoutDesc: "从当前视角导出透明背景 PNG，预览后可缩放查看细节，再通过系统对话框保存。",
+    featureAdaptiveTitle: "好硬件，更大预览容量",
+    featureAdaptiveDesc: "根据内存、GPU 和系统状态自动选择四档 Quick Look 容量，文件预算从 128 到 512 MiB。",
+    featureLargeTitle: "大模型，先概览再细化",
+    featureLargeDesc: "在主应用中先查看大型 GLB、glTF 的轻量概览，再逐步加载细节，细化时保留当前观察视角。",
     faqTitle: "常见问题",
     faqQ1: "如何安装 Trivor？",
     faqA1: "下载 .dmg，将 Trivor 拖入「应用程序」，从启动台或访达打开即可。",
     faqQ2: "提示「应用程序 Trivor.app 无法打开」？",
     faqA2:
-      "暂未上架 App Store。请先尝试打开一次 Trivor（会出现无法打开的提示），然后前往「系统设置 → 隐私与安全性」，在页面下方点击「仍要打开 Trivor」，之后即可从「应用程序」正常启动。",
+      "当前版本采用临时签名，尚未通过 Apple 公证。如果系统阻止打开，请先尝试启动一次，再前往「系统设置 → 隐私与安全性」，为 Trivor 选择「仍要打开」。",
     faqQ3: "支持哪些格式？",
-    faqA3: "glTF 与 GLB，常用的实时 3D 资产格式。",
+    faqA3: "主应用支持 glTF、GLB，并通过转换导入 OBJ、STL。访达预览与缩略图仅支持资源全部内嵌的自包含 GLB。",
     faqQ4: "需要什么系统？",
-    faqA4: "macOS 13 Ventura 或更高版本，Apple Silicon 与 Intel 均可。",
+    faqA4: "最低 macOS 13 Ventura。通用安装包包含 Apple Silicon 与 Intel 构建；0.5.0 已在 macOS 27.2 的 Apple Silicon 设备上实测。",
+    faqQ6: "访达能预览多大的模型？",
+    faqA6: "空格预览自动选择 128、256、384 或 512 MiB 文件预算，还会检查解码后的贴图、几何和场景复杂度。内存压力或过热时会收紧容量。后台缩略图保持 64 MiB 文件上限；更大的模型请在主应用中渐进预览。",
+    faqQ7: "如何启用访达预览？",
+    faqA7: "将 Trivor 0.5.0 或更新版本安装到「应用程序」，在访达选中自包含 GLB 后按空格。如扩展被禁用，在系统设置中搜索「扩展」，在 Quick Look 下启用 Trivor GLB Preview 和 Trivor GLB Thumbnail。其他 GLB 扩展可能影响系统选择的预览程序。",
     faqQ5: "如何获取历史版本？",
     faqA5: "在 GitHub 查看全部发布版本",
     footerCopy: "Copyright © 2026 imboni and contributors.",
@@ -144,6 +163,8 @@ function applyLang(lang) {
 
   const meta = document.querySelector('meta[name="description"]');
   if (meta) meta.setAttribute("content", strings.metaDescription);
+  const ogDescription = document.querySelector('meta[property="og:description"]');
+  if (ogDescription) ogDescription.setAttribute("content", strings.metaDescription);
 
   document.title =
     lang === "zh" ? "Trivor — macOS 3D 模型查看器" : "Trivor — macOS 3D Model Viewer";
@@ -183,6 +204,7 @@ function applyTheme(theme, { animate = false } = {}) {
 function bindExternalLinks() {
   const map = {
     releases: RELEASES_URL,
+    "release-notes": RELEASE_NOTES_URL,
     "releases-all": RELEASES_ALL_URL,
     repo: REPO_URL,
     issues: ISSUES_URL,

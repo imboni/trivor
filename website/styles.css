@@ -536,6 +536,18 @@ html[lang="zh-Hans"] .hero-quote {
   font-size: 12px;
 }
 
+.hero-release {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hero-release a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .page-links {
   display: flex;
   flex-wrap: wrap;

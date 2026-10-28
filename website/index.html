@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-site-version="0.5.0">
   <head>
     <meta charset="UTF-8" />
     <script>
@@ -12,9 +12,9 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Trivor — a lightweight 3D model viewer for macOS." />
+    <meta name="description" content="Trivor 0.5.0 for macOS: Finder GLB previews and thumbnails, adaptive preview capacity, progressive model loading, and transparent PNG export." />
     <meta property="og:title" content="Trivor — macOS 3D Model Viewer" />
-    <meta property="og:description" content="A lightweight 3D model viewer for macOS. Open glTF and GLB files directly from Finder." />
+    <meta property="og:description" content="Trivor 0.5.0 for macOS: Finder GLB previews and thumbnails, adaptive preview capacity, progressive model loading, and transparent PNG export." />
     <meta property="og:type" content="website" />
     <meta property="og:image" id="og-image" content="assets/screenshot-dark.png" />
     <meta name="theme-color" id="theme-color" content="#121316" />
@@ -26,7 +26,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif:ital,wght@0,400;0,500;1,400&family=Noto+Serif+SC:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=0.5.0" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
@@ -84,17 +84,18 @@
             <p class="hero-brand-sub" data-i18n="heroBrandSub" hidden>极视</p>
             <p class="hero-tagline" data-i18n="heroTagline">See every dimension.</p>
             <div class="hero-actions">
-              <a class="btn btn-primary" href="#" data-href="releases" data-i18n="download">Download for macOS</a>
+              <a class="btn btn-primary" href="https://github.com/imboni/trivor/releases/latest" data-href="releases" data-i18n="download">Download for macOS</a>
             </div>
-            <p class="hero-meta" data-i18n="heroMeta">macOS 13+ · glTF / GLB · Free</p>
-            <p class="hero-desc" data-i18n="heroDesc">
-              A lightweight 3D model viewer for macOS. Open glTF and GLB files and inspect them in seconds.
+            <p class="hero-release">
+              <a href="https://github.com/imboni/trivor/releases/tag/v0.5.0" data-href="release-notes" data-i18n="releaseNotes">New in 0.5.0 · Finder previews &amp; thumbnails</a>
             </p>
+            <p class="hero-meta" data-i18n="heroMeta">macOS 13+ · Apple Silicon &amp; Intel · Free</p>
+            <p class="hero-desc" data-i18n="heroDesc">Inspect 3D models in a lightweight Mac app, or press Space in Finder for an interactive GLB preview. Keep your assets local.</p>
             <p class="hero-quote" data-i18n="heroQuote">Blank as paper—awaiting the stroke of mountains.</p>
             <nav class="page-links" aria-label="Sections">
               <a href="#features" data-i18n="linkFeatures">Features</a>
               <a href="#faq" data-i18n="linkFaq">FAQ</a>
-              <a href="#" data-href="repo" data-i18n="linkGitHub">GitHub</a>
+              <a href="https://github.com/imboni/trivor" data-href="repo" data-i18n="linkGitHub">GitHub</a>
             </nav>
           </div>
         </section>
@@ -141,6 +142,20 @@
             <div class="feature-grid" data-reveal-group>
               <article class="feature-card glass motion-child">
                 <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-mac" /></svg>
+                </div>
+                <h3 data-i18n="featureMacTitle">Preview right in Finder</h3>
+                <p data-i18n="featureMacDesc">Select a self-contained GLB and press Space to rotate, zoom and fit. See model thumbnails directly in Finder.</p>
+              </article>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg><use href="#icon-view" /></svg>
+                </div>
+                <h3 data-i18n="featureAdaptiveTitle">More room on capable Macs</h3>
+                <p data-i18n="featureAdaptiveDesc">Quick Look adjusts capacity to your memory, GPU and system conditions, with four file budgets from 128 to 512 MiB.</p>
+              </article>
+              <article class="feature-card glass motion-child">
+                <div class="feature-icon" aria-hidden="true">
                   <svg><use href="#icon-view" /></svg>
                 </div>
                 <h3 data-i18n="featureViewTitle">Interactive viewing</h3>
@@ -150,28 +165,22 @@
                 <div class="feature-icon" aria-hidden="true">
                   <svg><use href="#icon-folder" /></svg>
                 </div>
-                <h3 data-i18n="featureBrowseTitle">Files & folders</h3>
-                <p data-i18n="featureBrowseDesc">
-                  Open a single model or an entire folder, then switch between files in the sidebar.
-                </p>
+                <h3 data-i18n="featureBrowseTitle">Files &amp; folders</h3>
+                <p data-i18n="featureBrowseDesc">Open glTF, GLB, OBJ or STL files, browse folders, and package supported assets as GLB or embedded glTF.</p>
               </article>
               <article class="feature-card glass motion-child">
                 <div class="feature-icon" aria-hidden="true">
                   <svg><use href="#icon-mac" /></svg>
                 </div>
-                <h3 data-i18n="featureMacTitle">Native on macOS</h3>
-                <p data-i18n="featureMacDesc">
-                  Open from Finder, use the menu bar, and rely on familiar keyboard shortcuts.
-                </p>
+                <h3 data-i18n="featureLargeTitle">Large models, in stages</h3>
+                <p data-i18n="featureLargeDesc">Start with a lightweight overview of large GLB or glTF assets in the app, then load more detail while keeping your view.</p>
               </article>
               <article class="feature-card glass motion-child">
                 <div class="feature-icon" aria-hidden="true">
                   <svg><use href="#icon-cutout" /></svg>
                 </div>
                 <h3 data-i18n="featureCutoutTitle">Cutout export</h3>
-                <p data-i18n="featureCutoutDesc">
-                  Export a transparent PNG from the current view — preview, pan/zoom, then save via the native dialog.
-                </p>
+                <p data-i18n="featureCutoutDesc">Export a transparent PNG from the current view — preview, pan/zoom, then save via the native dialog.</p>
               </article>
             </div>
           </div>
@@ -183,28 +192,32 @@
             <div class="faq-list" data-reveal-group>
               <article class="faq-item glass motion-child">
                 <h3 class="faq-q" data-i18n="faqQ1">How do I install Trivor?</h3>
-                <p class="faq-a" data-i18n="faqA1">
-                  Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.
-                </p>
+                <p class="faq-a" data-i18n="faqA1">Download the DMG, drag Trivor to Applications, then launch it from Launchpad or Finder.</p>
               </article>
               <article class="faq-item glass motion-child">
                 <h3 class="faq-q" data-i18n="faqQ2">macOS says Trivor can't be opened — what should I do?</h3>
-                <p class="faq-a" data-i18n="faqA2">
-                  Trivor isn't on the App Store yet. Try opening it once, then go to System Settings → Privacy & Security, scroll down, and click Open Anyway for Trivor. It should launch normally from Applications afterward.
-                </p>
+                <p class="faq-a" data-i18n="faqA2">The current release is ad-hoc signed and has not been notarized by Apple. If macOS blocks it, try opening it once, then go to System Settings → Privacy &amp; Security and choose Open Anyway for Trivor.</p>
               </article>
               <article class="faq-item glass motion-child">
                 <h3 class="faq-q" data-i18n="faqQ3">Which file formats are supported?</h3>
-                <p class="faq-a" data-i18n="faqA3">glTF and GLB — the standard formats for real-time 3D content.</p>
+                <p class="faq-a" data-i18n="faqA3">The app opens glTF and GLB, and imports OBJ and STL through conversion. Finder previews and thumbnails support self-contained GLB files only.</p>
               </article>
               <article class="faq-item glass motion-child">
                 <h3 class="faq-q" data-i18n="faqQ4">What are the system requirements?</h3>
-                <p class="faq-a" data-i18n="faqA4">macOS 13 Ventura or later, on Apple Silicon or Intel.</p>
+                <p class="faq-a" data-i18n="faqA4">macOS 13 Ventura or later. The universal app includes Apple Silicon and Intel builds; 0.5.0 was runtime-tested on macOS 27.2 with Apple Silicon.</p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ6">How large can a Finder preview be?</h3>
+                <p class="faq-a" data-i18n="faqA6">Space previews use file budgets of 128, 256, 384 or 512 MiB, selected automatically. Decoded textures, geometry and scene complexity also count; memory or thermal pressure can lower capacity. Background thumbnails keep a 64 MiB file limit. Open larger models in the app for progressive previews.</p>
+              </article>
+              <article class="faq-item glass motion-child">
+                <h3 class="faq-q" data-i18n="faqQ7">How do I enable Finder previews?</h3>
+                <p class="faq-a" data-i18n="faqA7">Install Trivor 0.5.0 or later in Applications, select a self-contained GLB and press Space. If disabled, search System Settings for Extensions and enable Trivor GLB Preview and Trivor GLB Thumbnail under Quick Look. Other GLB extensions may affect which preview macOS uses.</p>
               </article>
               <article class="faq-item glass motion-child">
                 <h3 class="faq-q" data-i18n="faqQ5">Where can I find previous releases?</h3>
                 <p class="faq-a">
-                  <a class="link-subtle" href="#" data-href="releases-all" data-i18n="faqA5">Browse all releases on GitHub</a>
+                  <a class="link-subtle" href="https://github.com/imboni/trivor/releases" data-href="releases-all" data-i18n="faqA5">Browse all releases on GitHub</a>
                 </p>
               </article>
             </div>
@@ -216,14 +229,14 @@
         <div class="container footer-inner">
           <p class="footer-copy" data-i18n="footerCopy">Copyright © 2026 imboni and contributors.</p>
           <nav class="footer-links" aria-label="Links">
-            <a href="#" data-href="repo" data-i18n="linkGitHub">GitHub</a>
-            <a href="#" data-href="releases-all" data-i18n="footerReleases">Release history</a>
-            <a href="#" data-href="issues" data-i18n="footerIssues">Feedback</a>
+            <a href="https://github.com/imboni/trivor" data-href="repo" data-i18n="linkGitHub">GitHub</a>
+            <a href="https://github.com/imboni/trivor/releases" data-href="releases-all" data-i18n="footerReleases">Release history</a>
+            <a href="https://github.com/imboni/trivor/issues" data-href="issues" data-i18n="footerIssues">Feedback</a>
           </nav>
         </div>
       </footer>
     </div>
 
-    <script type="module" src="main.js"></script>
+    <script type="module" src="main.js?v=0.5.0"></script>
   </body>
 </html>

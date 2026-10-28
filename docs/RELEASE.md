@@ -34,8 +34,9 @@ chmod +x scripts/changelog-extract.sh   # once
 
 1. Bump version in the three files above.
 2. Finalize [CHANGELOG.md](../CHANGELOG.md) (dated version section, empty `[Unreleased]`).
-3. Commit, e.g. `chore(release): prepare v0.1.0`.
-4. Tag and push:
+3. Update the [product website](../website/README.md) for the release: English and Chinese features, format/preview limits, installation guidance, the HTML fallback and metadata. Set `data-site-version` on the HTML root to the package version, update the HTML release notes link and `RELEASE_NOTES_URL` in `website/main.js` to the matching release tag, and update `main.js?v={version}` and `styles.css?v={version}` in the HTML to avoid reusing an older release's cached resources. Run `node scripts/check-website-release.mjs` and review both languages, themes and desktop/mobile layouts locally.
+4. Commit, e.g. `chore(release): prepare v0.1.0`.
+5. Tag and push:
 
 ```bash
 git tag -a v0.1.0 -m "v0.1.0"
@@ -46,6 +47,7 @@ git push origin v0.1.0
 Pushing `v*` triggers [.github/workflows/release.yml](../.github/workflows/release.yml), which:
 
 - Uses a macOS 15 build runner, while retaining the macOS 13 deployment target
+- Checks website version, release notes URLs and JavaScript/CSS version queries before installing dependencies; stale metadata fails the release build with update instructions
 - Builds a universal `.app` + `.dmg`
 - Uploads **`Trivor-0.1.0-macOS.dmg`**
 - Creates the GitHub Release with the **CHANGELOG section** for that version (not auto-generated commit lists)
@@ -55,6 +57,23 @@ Manual CI run (existing tag):
 ```bash
 gh workflow run release.yml -f version=v0.1.0
 ```
+
+## Verify the published website
+
+App releases and GitHub Pages use separate workflows. A tag push alone does not
+deploy the website. Push the website changes to `main` and wait for the
+[Deploy website workflow](../.github/workflows/pages.yml) to succeed for that
+commit. If a redeploy is needed without file changes, run
+`gh workflow run pages.yml --ref main`.
+
+After the app release and Pages deployment finish, open
+[the live site](https://imboni.github.io/trivor/) and confirm the displayed version,
+English/Chinese release features, release notes link and download destination.
+Check that `/releases/latest` reaches the published stable release. Refresh with
+cache disabled if the CDN or browser still shows the previous page, and verify
+the served HTML's `data-site-version` and `main.js` content match the release.
+The metadata check prevents a forgotten version update; it does not establish
+that the copy is accurate or that deployment has completed.
 
 ## Signing
 
