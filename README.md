@@ -18,6 +18,8 @@
 
 Trivor is a lightweight, native macOS application for inspecting **glTF** and **GLB** 3D assets. It combines a Rust backend for parsing and metadata with a WebGL viewport powered by [Google model-viewer](https://github.com/google/model-viewer).
 
+**Version 0.5.0** adds Finder GLB thumbnails and interactive **Space** previews, with four capacity tiers selected automatically for your Mac.
+
 ## Features
 
 | Area | Capabilities |
@@ -29,6 +31,7 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Cutout export** | Export a transparent-background PNG from the current view; preview, pan/zoom, then save via the native dialog |
 | **Model export** | Save the original model as a self-contained GLB or embedded glTF |
 | **System integration** | Native menu bar; Finder “Open with”; configurable keyboard shortcuts |
+| **Finder Quick Look** | GLB thumbnails and Space previews with orbit, zoom, fit and automatic hardware capacity selection; included in 0.5.0 |
 | **Preferences** | Dark, light, or system appearance; English and Simplified Chinese UI |
 
 ## Requirements
@@ -39,19 +42,19 @@ Trivor is a lightweight, native macOS application for inspecting **glTF** and **
 | **Architecture** | Apple Silicon and Intel (universal build from releases) |
 | **Formats** | `.gltf` (JSON + sidecar `.bin` / textures) and `.glb` (single file) |
 
-The current development build was verified on macOS 27.0.1 (Apple Silicon) using SDK 27.0. See [compatibility checks and limits](tests/README.md#macos-27-compatibility--2026-10-23).
+Version 0.5.0 was tested on macOS 27.2 (Apple Silicon). Local validation used SDK 27.0; release CI uses the macOS 15 runner's SDK, with the same macOS 13 minimum deployment target. Intel binaries are included in the universal build; this release does not claim runtime testing on Intel hardware or older macOS versions. See [test results and compatibility limits](tests/README.md).
 
 > **Note:** Keep `.gltf` sidecar files in the same folder. Large GLB/glTF models show a structure overview, then progressively finer previews, with cancellation. A roughly **2 GB** geometry fixture has been tested. These remain simplified previews; see [budgets and limits](docs/large-models.md).
 
 ## Installation
 
-Pre-built builds are published on [GitHub Releases](https://github.com/imboni/trivor/releases).
+Download the latest installation package from [GitHub Releases](https://github.com/imboni/trivor/releases/latest).
 
 1. Download the latest `.dmg`.
 2. Drag **Trivor** into **Applications**.
 3. Open a model from Finder or from **File → Open…** inside the app.
 
-> **Security (not from the App Store):** Trivor is distributed via GitHub, not the Mac App Store. On first launch, macOS may show that the app “cannot be verified” or was blocked by Gatekeeper. This is expected for apps outside the App Store.
+> **Security:** Trivor is distributed via GitHub. The default release uses ad-hoc signing without Apple notarization, so macOS may block it on first launch.
 >
 > **Allow the app once:** open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the Trivor message—or in Finder, **Control-click** **Trivor → Open** and confirm. After that, launch normally from Applications.
 
@@ -62,6 +65,28 @@ Pre-built builds are published on [GitHub Releases](https://github.com/imboni/tr
 - **File → Open…** (`⌘O`) — select a `.gltf` or `.glb` file.
 - **File → Open Folder…** (`⌘⇧O`) — scan a directory and list all supported models.
 - **Finder** — right-click a `.gltf`, `.glb`, or folder → **Open With → Trivor**.
+
+### Finder Quick Look
+
+Included in **Trivor 0.5.0**. Install the complete app, select a `.glb` in Finder and press **Space**.
+Drag to orbit, scroll to zoom, and click **Fit**, press **F**, or double-click to
+restore the fitted view. If disabled, search System Settings for **Extensions**
+and enable **Trivor GLB Preview** and **Trivor GLB Thumbnail** under Quick Look.
+
+Finder also displays rendered GLB thumbnails, including textured Draco, meshopt
+and KTX2 models. Thumbnails use a fixed three-quarter view with a transparent
+background and are generated locally without opening the app window.
+
+Space previews support self-contained GLB 2.0 files with a file budget of **128–512 MiB**,
+selected automatically across four tiers using physical memory capacity, GPU
+recommendations and current thermal and memory-pressure conditions.
+Decoded geometry, textures, their combined size and scene complexity are also
+bounded. Limit messages identify the
+resource and estimated usage. Background thumbnails retain a lower 64 MiB file
+budget; see the [supported content and full budget table](quick-look/README.md#scope-and-limits).
+Larger models and external resources show guidance to open the main app, which
+retains progressive previews for models around 2 GB. Unsupported thumbnails use
+the system's fallback icon.
 
 ### Library
 
@@ -172,6 +197,7 @@ trivor/
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting |
 | [docs/RELEASE.md](docs/RELEASE.md) | macOS release signing |
+| [Quick Look](quick-look/README.md) | Finder Space previews, thumbnails, supported content and budgets |
 | [docs/large-models.md](docs/large-models.md) | Large GLB preview & roadmap |
 | [docs/icon.md](docs/icon.md) | Application icon workflow |
 

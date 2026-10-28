@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "beforeBundleCommand": "node scripts/prepare-macos-sidecar.mjs"
+    "beforeBundleCommand": "node scripts/prepare-macos-bundle.mjs"
   },
   "bundle": {
     "externalBin": [],
@@ -11,7 +11,9 @@
     "longDescription": "Trivor (极视) is a lightweight 3D model viewer for macOS. Open glTF and GLB files, inspect geometry and materials, and orbit/zoom with a polished viewer built for Apple Silicon and Intel Macs.",
     "macOS": {
       "files": {
-        "MacOS/gltfpack": ".bundle/gltfpack"
+        "MacOS/gltfpack": ".bundle/gltfpack",
+        "PlugIns/TrivorQuickLook.appex": ".bundle/TrivorQuickLook.appex",
+        "PlugIns/TrivorThumbnail.appex": ".bundle/TrivorThumbnail.appex"
       },
       "entitlements": "./Entitlements.plist",
       "infoPlist": "./Info.plist",

@@ -31,6 +31,271 @@ to the system temporary directory. Native IPC/dialogs are mocked in this test;
 Finder registration, real clipboard access and packaged WKWebView need a macOS app
 smoke test before release.
 
+## Quick Look regression commands
+
+The Quick Look tests cover GLB resource budgets, external-resource rejection,
+bundle/signing configuration, native file snapshots, safe resource paths and
+cancellation while delivering WebKit responses:
+
+```sh
+npm test
+npm run test:quicklook:native
+npm run test:thumbnail:queue
+npm run build:quicklook:web
+```
+
+Serve the generated page in one terminal, then run the browser regression in a
+second terminal with Python Playwright, Pillow and Chromium installed:
+
+```sh
+python3 -m http.server 1434 --bind 127.0.0.1 --directory src-tauri/.bundle/quicklook-web
+python3 tests/browser-quicklook.py --output /private/tmp/trivor-quicklook-browser
+python3 tests/browser-quicklook.py --model /path/model.glb --output /private/tmp/trivor-quicklook-real-model
+python3 tests/browser-quicklook.py --budget-json /path/budget.json --model /path/model.glb --output /private/tmp/trivor-quicklook-adaptive
+python3 tests/browser-thumbnail.py --output /private/tmp/trivor-thumbnail-browser
+```
+
+The browser test generates real Draco, meshopt and KTX2 fixtures using the installed
+encoders. It checks rendered pixels, camera controls, local decoder requests,
+errors, cancellation and disposal while blocking external requests. It does not
+replace the actual Finder test: select a GLB, press Space, interact with the model,
+close/reopen, and check compressed, malformed and over-budget fixtures.
+
+`--budget-json` accepts one native `{tier, limits}` snapshot, records the resolved
+capacity badge and tooltip, and also checks missing/invalid-budget fallback.
+`node scripts/test-quicklook-native.mjs --print-runtime-budget` prints the current
+machine's hardware estimate and selected snapshot; `--print-budget-profiles`
+prints all tier definitions. The normal native suite verifies those definitions
+against the browser validator, including the unchanged thumbnail profile.
+
+For large local assets, stream from the exact model mapping instead of sending
+the binary body through Playwright's control protocol. In two terminals, with
+the same model paths in the same order:
+
+```sh
+python3 tests/browser-quicklook.py --serve-only --model /path/model.glb
+python3 tests/browser-quicklook.py --stream-models --model /path/model.glb --budget-json /path/budget.json --compare-standard --output /private/tmp/trivor-quicklook-adaptive
+```
+
+The server binds only to `127.0.0.1:1434`, reads the original model in chunks and
+serves the built preview page. Stop it after the test. Browser teardown has a
+separate ten-second watchdog that can terminate only this test's driver; its
+outcome is recorded separately from model assertions in `result.json`.
+
+The thumbnail browser regression disables animation frames and visibility/resize
+observers, then verifies transparent pixels, texture colors, request replacement,
+errors and dimensions through 1024 pixels at device scale 2.
+
+For native WebKit and the registered macOS thumbnail provider:
+
+```sh
+npm run build:quicklook:integration
+npm run test:thumbnail:native
+src-tauri/.bundle/TrivorThumbnailGeneratorTests.app/Contents/MacOS/TrivorThumbnailGeneratorTests /path/model.glb 512 2 /private/tmp/trivor-thumbnail-generator
+```
+
+The first command builds `TrivorQuickLookIntegration.app` in `src-tauri/.bundle/`;
+launch that app to run its controller integration checks and save the report in
+its container's `Library/Caches/TrivorQuickLookIntegration`. The thumbnail command
+runs a sandboxed test app with no visible window, checks actual WebKit output and
+renderer release, and builds the generator CLI. That CLI requires the packaged
+Trivor app's extension to be registered. It explicitly rejects file-icon fallback
+representations. Native runs need access to macOS WebKit/GPU services; a restricted
+shell sandbox cannot substitute for the app's own sandbox test.
+
+The queue suite is independent of WebKit and runs in Release CI. Injected reads
+and renders cover blocked file reads, deadline expiry during every phase,
+late/duplicate callbacks, queue capacity, reentrant completion, cross-thread
+delivery and recovery after a blocked read returns.
+
+### 0.5.0 release candidate — 2026-10-28
+
+The version bump passed **99 Node tests, 73 Rust tests, 162 native boundary
+checks**, the native/browser budget contract and **six thumbnail queue scenarios**.
+The optimized 0.5.0 Apple Silicon app and DMG built successfully; the app, helper
+and both extensions passed matching-version, architecture, offline-resource and
+sandbox-signature checks, and the DMG checksum verified. Local DMG SHA-256:
+`d55bc465ab5914ea7ad099b1239c6be4a54388081f01f21934be89ffa2a9617f`.
+Runtime coverage from the feature validation is recorded below. Release CI builds
+and checks the universal app separately on its macOS 15 runner.
+
+### Hardware-adaptive preview budgets — 2026-10-28
+
+The actual **Apple M5 / 32 GiB** Mac on **macOS 27.2 (26B123)** selected `large`
+in the sandboxed native integration app. Metal reported a recommended working
+set of 26,800,603,136 bytes; the selected limits were **384 MiB file, 24 MiB JSON,
+1024 MiB each for geometry and textures, and 1536 MiB combined**. The initial
+pressure state was explicitly `unknown`, and thermal state was `nominal`.
+
+**99 Node tests**, **162 native checks**, the native/browser budget contract and **six queue
+scenarios** passed. **18 native WKWebView integration checks with 35 preparation
+callbacks** passed, including the real hardware snapshot crossing into the page,
+four rendered model formats, camera controls, errors and rapid replacement.
+Injected pressure changes verified cancellation during reading, boot and loading,
+ready-model preservation, rejection of new requests during critical pressure,
+warning downgrade and recovery only for new requests. No system memory-pressure
+stress command was used. Other RAM/GPU tiers and thermal states were simulated;
+these are not measurements from other physical Macs.
+
+The windowless native thumbnail suite passed **12 checks**, including KTX2,
+transparent rendering at multiple sizes, cancellation and renderer cleanup.
+The real train model also passed the browser suite using the native `large`
+snapshot: the capacity badge showed 384 MiB / 1024 MiB, ready took **1.89 seconds**,
+and rendered pixels, orbit, zoom, Fit/F and disposal passed without external
+requests or JavaScript errors. Missing and malformed snapshots both used the
+standard budget. Timing is a single run, not a performance guarantee.
+
+Texture accounting tests cover exact power-of-two, NPOT and narrow mip chains,
+tiny compressed-block minimums, and real BC1/BC7/ASTC containers accepted by Three.
+HDR/raw-Zstd KTX2 paths are rejected before decoding. The combined decoded limit
+still rejects an overage of one byte; the mipmap correction adds no tolerance.
+
+A second user-local model (not committed) is **135,552,008 bytes**,
+with **1,274,845 triangles** and an estimated **1,073,741,808 bytes of textures**.
+The same-origin streaming browser test recorded a structured file rejection in
+standard (128 MiB), then successful loading in large in **2.11 seconds**, with
+33,401 visible canvas pixels, orbit/zoom/Fit/F and disposal passing. The previous
+rounded mip estimate exceeded the 1 GiB texture cap by eight bytes; summing its
+complete mip chains puts this model 16 bytes below that unchanged cap.
+Streaming avoids sending a large binary body through Playwright's control
+protocol; measured loading here includes HTTP reading and model rendering.
+The final registered Finder extension also opened both original model files,
+showing the `large` capacity badge and 384 MiB / 1024 MiB limits. The large browser
+run passed its model assertions before an old Playwright `browser.close()` hang;
+its already-exited browser and remaining test driver/server were cleaned up, and
+the report records the forced driver teardown. The new bounded cleanup helper
+passed both normal and deliberately stalled-close checks with isolated browsers.
+
+Both final extensions compiled for arm64 and x86_64. The Apple Silicon development
+app and DMG passed nested signatures, version/architecture/resource checks, image
+checksum verification and a read-only mounted app check. Final DMG SHA-256:
+`196f050751dd436a0b96ef609619b2cfab46438fde8d443d407b9584bc472464`.
+These local artifacts retain version 0.4.1 and are not a published release.
+
+### Preview budget update — 2026-10-28
+
+Space previews now use a separate, larger profile; background thumbnail budgets
+are unchanged. Both native file/JSON checks and the web scene checks select their
+profile explicitly. Limit errors carry a validated resource metric, observed
+usage and limit, with native localized text. Geometry estimates now account for
+independent buffer-view copies, including overlapping views of the same buffer.
+
+**88 Node tests, 111 native boundary/message checks, six queue scenarios and ten
+native WKWebView integration scenarios passed**. Browser preview and thumbnail
+regressions passed. The native error view displayed the expected geometry value
+and 256 MiB cap; malformed bridge payloads and stale callbacks remain rejected.
+The integration harness stays visible only while its suite runs, avoiding a
+background/occluded WebKit page waiting indefinitely for animation frames.
+
+A user-supplied train GLB (not committed) has **7,530,204 bytes, 156,434 triangles,
+nine draws and 14 WebP images**. Its decoded texture estimate is about **200 MiB**,
+which explained the old 128 MiB rejection. The new preview profile passes it;
+the thumbnail profile still correctly rejects it with the texture metric.
+The real-browser run reached ready in **1.68 seconds** and verified actual model
+pixels, orbit, zoom, Fit/F and cleanup with no outside requests or JavaScript
+errors. This is one browser measurement, not a general loading-time guarantee.
+The final registered extension also rendered the original train file directly
+in Finder Space on macOS 27.2, including the complete body, textures and wheels.
+
+Both extensions compiled and passed strict signatures for arm64 and x86_64.
+The final Apple Silicon app/DMG passed versions, resources, architecture and
+nested signatures; the DMG passed checksum verification and a read-only mounted
+app check. SHA-256:
+`87b7c5797ffb5e4ccfc80e9c855a72358e27fd219c249869e3ab53bcb022bc5a`.
+Local artifacts remain development builds with ad-hoc signatures, not a new
+published release or an Intel/older-macOS runtime test.
+
+### Native results — 2026-10-28
+
+On **macOS 27.2 (26B123), Apple Silicon**, **80 Node tests, 73 Rust tests and
+35 native file/resource checks passed**. Browser checks passed against the
+packaged preview page, including ordinary, Draco, meshopt and KTX2 GLBs, camera
+controls, Fit/F, light/dark appearance, narrow layouts and rejection/recovery.
+
+The native controller integration app passed 10 scenarios with the real
+WKWebView and local scheme handler: four model formats, drag rotation, wheel
+zoom, Fit/F, malformed/external/over-budget rejection and rapid replacement.
+All 28 preparation callbacks completed; no JavaScript errors were reported.
+The drag test supplies valid `buttons=1` pointer events within the native web
+view. This exercises the production interaction path without depending on the
+automation tool's incorrect `buttons=0` events observed in the October 25 run;
+it is not a physical mouse hardware test.
+
+The windowless thumbnail renderer passed 12 checks, including 64–1024 pixel
+images, compressed textures, alpha/color checks, rejection, cancellation exactly
+once and 12 repeated renders with no retained renderers. Every inspected renderer
+WKWebView had `window == nil`; AppKit's internal text-input window stayed hidden.
+
+Six native queue scenarios passed, covering blocked file reads and recovery,
+bounded physical I/O concurrency, total deadlines, once-only callbacks,
+reentrant completion, request capacity and main-thread delivery. These checks
+are also included in Release CI.
+
+Visual comparison of the actual system-provider output caught a Retina bug that
+size-only assertions missed: the bitmap was scaled but the drawing rectangle was
+still in points, leaving a half-size image in a corner. The provider now converts
+the actual bitmap bounds to the context's user coordinates. Pixel tests check
+the model's occupied area and position as well as output dimensions.
+
+The final registered provider passed five real `QLThumbnailGenerator` requests:
+cube 256px at 1×, cube 512px at 2×, meshopt 128px at 1×, Draco 384px at 1.5×,
+and KTX2 1024px at 2×. Each returned a thumbnail representation, with transparent
+background, colored surfaces and the expected silhouette bounds and centering.
+System process/log evidence confirmed the final packaged Trivor extension ran.
+After repeated local rebuilds, macOS temporarily kept choosing its SceneKit
+provider despite Trivor being registered and enabled. Restarting the background
+thumbnail service refreshed that selection; no Finder, screenshot permission or
+global thumbnail-cache reset was involved.
+
+Development artifacts remain ad-hoc signed. Intel compilation and the macOS 13
+deployment target do not establish runtime testing on Intel or older macOS.
+This run does not repeat the earlier 2 GB main-app loading benchmark.
+
+Both extensions compiled and passed strict signatures for arm64 + x86_64. The
+final Apple Silicon app and DMG passed nested signature, resources, architecture
+and version checks; the DMG was checksum-verified, mounted read-only, checked
+again and detached. Its SHA-256 is
+`32d9c0b9ed58f16315854664eb47d31eb68217dc13edc3065984881b450ed5b4`.
+
+### Native results — 2026-10-25
+
+On macOS 27.0.1 / Apple Silicon, **74 Node tests and 35 native Swift checks
+passed**, along with TypeScript/Vite, the release app build and strict nested
+signature verification. The Apple Silicon DMG passed checksum verification and
+read-only mounting; its app, helper and extension passed the same signature and
+resource checks. The packaged main app opened the cube through its native picker
+and reported 8 vertices, 12 triangles and dimensions 2 × 1.2 × 0.8.
+The extension compiles for arm64 and x86_64 with a macOS
+13 minimum target; Intel hardware and older macOS runtime behavior were not tested.
+
+The embedded extension was registered from the built app and invoked through
+Finder Space. Ordinary, meshopt, Draco and KTX2 GLBs rendered, including the KTX2
+checker texture. Wheel zoom, Fit, closing/reopening and recovery after an invalid
+file worked. Damaged files, external resources and excessive declared decoded
+geometry displayed the intended Chinese guidance. Screenshot access required no
+permission reset.
+
+This run found and fixed two native integration failures: WebKit requires the
+sandbox network-client entitlement even for local custom-scheme resources, and
+Quick Look needs its preparation callback before presenting the controller. The
+extension now publishes its progress view immediately and keeps a separate
+30-second render deadline, avoiding a wait on an invisible renderer's first frame.
+
+Real Chromium tests passed drag rotation, wheel zoom, Fit/F, light/dark and narrow
+layouts, offline decoder loads, stale requests and disposal. Native keyboard
+rotation passed in the isolated controller harness. Native automated drag could
+not validate physical mouse behavior: temporary event instrumentation showed the
+automation's pointerdown and pointermove both arriving with `buttons=0`, which
+model-viewer correctly ignores. No workaround for this test-tool behavior was
+added to production code. See the October 28 native interaction regression above
+for subsequent automated coverage of the valid pointer-event path.
+
+Temporary browser evidence and generated fixtures:
+`/private/tmp/trivor-quicklook-browser`. Local builds use ad-hoc signatures and are
+not notarized. These checks do not establish full-fidelity support for arbitrary
+complex models; Quick Look retains the documented budgets, while large models
+use the main app.
+
 ## macOS 27 compatibility — 2026-10-23
 
 Verified the development build on **macOS 27.0.1 (26A434), Apple Silicon**, built

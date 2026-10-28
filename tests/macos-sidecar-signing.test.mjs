@@ -28,7 +28,7 @@ function fixture(t, targets = ["aarch64-apple-darwin"]) {
 test("macOS preserves the helper signature through files and keeps the main sandbox permissions", () => {
   const config = JSON.parse(readFileSync(path.join(projectRoot, "src-tauri", "tauri.macos.conf.json"), "utf8"));
   assert.deepEqual(config.bundle.externalBin, []);
-  assert.equal(config.build.beforeBundleCommand, "node scripts/prepare-macos-sidecar.mjs");
+  assert.equal(config.build.beforeBundleCommand, "node scripts/prepare-macos-bundle.mjs");
   assert.equal(config.bundle.macOS.files["MacOS/gltfpack"], ".bundle/gltfpack");
   assert.equal(config.bundle.macOS.entitlements, "./Entitlements.plist");
   const helper = readFileSync(path.join(projectRoot, "src-tauri", "Entitlements.sidecar.plist"), "utf8");

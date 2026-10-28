@@ -10,7 +10,10 @@ Trivor ships via [GitHub Releases](https://github.com/imboni/trivor/releases) as
 | [package.json](../package.json) | `"version"` |
 | [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json) | `"version"` |
 
-After editing `package.json`, run `npm install` so [package-lock.json](../package-lock.json) stays aligned.
+After editing `package.json`, run `npm install --package-lock-only --ignore-scripts`
+so [package-lock.json](../package-lock.json) stays aligned without changing installed
+dependencies. Run the workspace checks to update the four local package versions
+in [Cargo.lock](../Cargo.lock); external dependency versions should remain unchanged.
 
 ## Changelog workflow
 
@@ -42,6 +45,7 @@ git push origin v0.1.0
 
 Pushing `v*` triggers [.github/workflows/release.yml](../.github/workflows/release.yml), which:
 
+- Uses a macOS 15 build runner, while retaining the macOS 13 deployment target
 - Builds a universal `.app` + `.dmg`
 - Uploads **`Trivor-0.1.0-macOS.dmg`**
 - Creates the GitHub Release with the **CHANGELOG section** for that version (not auto-generated commit lists)
@@ -62,7 +66,8 @@ CI uses **ad-hoc signing** (`APPLE_SIGNING_IDENTITY=-`) unless the `APPLE_SIGNIN
 
 For Developer ID signing and notarization, see [Apple’s notarization guide](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution) and optional `.env` + [scripts/build-macos-release.sh](../scripts/build-macos-release.sh).
 
-The macOS `beforeBundleCommand` runs [prepare-macos-sidecar.mjs](../scripts/prepare-macos-sidecar.mjs)
+The macOS `beforeBundleCommand` runs [prepare-macos-bundle.mjs](../scripts/prepare-macos-bundle.mjs),
+which calls [prepare-macos-sidecar.mjs](../scripts/prepare-macos-sidecar.mjs)
 for Apple Silicon, Intel, and universal builds. It signs a copy of `gltfpack` using
 the configured signing identity and [Entitlements.sidecar.plist](../src-tauri/Entitlements.sidecar.plist),
 then includes it through `bundle.macOS.files`. The generated copy lives in the ignored
@@ -70,18 +75,32 @@ then includes it through `bundle.macOS.files`. The generated copy lives in the i
 For Developer ID builds, the same `APPLE_SIGNING_IDENTITY` certificate must be available
 in the build machine's keychain before the hook runs.
 
+The hook also builds `TrivorQuickLook.appex` and `TrivorThumbnail.appex` with the installed Command Line Tools
+Swift compiler for the selected architectures. Its version and bundle identifier
+are derived from the app configuration. Each extension embeds its own bounded,
+offline model-viewer page and is signed with sandbox + user-selected **read-only**
+file access plus the network-client entitlement required for WebKit's service
+startup, then copied to `Contents/PlugIns/` through `bundle.macOS.files`.
+Its content security policy and local scheme handler restrict all model resources
+to the selected self-contained file and bundled decoders.
+App, helper and both extension signatures are verified together after bundling;
+the extensions must not be re-signed using the main app's broader entitlements.
+
 This separate signature is necessary because Tauri CLI 2.11 applies the main app's
 entitlements to every `externalBin`. macOS therefore overrides `externalBin` with
 an empty list; other platforms keep the existing sidecar configuration. The main app
 retains its original sandbox/file/network permissions. The helper has only sandbox
 and inheritance enabled, as required by [Apple's sandbox inheritance rules](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html).
 
-After bundling, verify the final app and inspect both entitlement sets:
+After bundling, verify the final app and inspect all four entitlement sets:
 
 ```bash
 codesign --verify --deep --strict target/universal-apple-darwin/release/bundle/macos/Trivor.app
 codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app
 codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app/Contents/MacOS/gltfpack
+codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app/Contents/PlugIns/TrivorQuickLook.appex
+codesign --display --entitlements :- target/universal-apple-darwin/release/bundle/macos/Trivor.app/Contents/PlugIns/TrivorThumbnail.appex
+node scripts/verify-macos-bundle.mjs target/universal-apple-darwin/release/bundle/macos/Trivor.app arm64 x86_64
 ```
 
 ## Local universal build
@@ -94,3 +113,9 @@ npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 Artifacts: `target/universal-apple-darwin/release/bundle/`
 
 Open With handlers for `.gltf`/`.glb`, `.obj`/`.stl` and folders: [tauri.macos.conf.json](../src-tauri/tauri.macos.conf.json), [Info.plist](../src-tauri/Info.plist).
+
+Quick Look preview/thumbnail scope, build commands and registration diagnostics:
+[quick-look/README.md](../quick-look/README.md). Before release, test Finder Space
+preview with the installed app, including closing/reopening and malformed files.
+Verify that `QLThumbnailGenerator` returns a real thumbnail representation for
+fresh GLB fixtures; a generic file icon does not establish provider success.

@@ -1,6 +1,6 @@
 {
   "name": "trivor",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "A lightweight 3D model viewer, available for macOS.",
   "license": "MIT",
   "repository": {
@@ -14,6 +14,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "node --test tests/*.test.mjs tests/*.test.cjs",
+    "test:quicklook:native": "node scripts/test-quicklook-native.mjs",
+    "test:thumbnail:native": "node scripts/test-thumbnail-native.mjs",
+    "test:thumbnail:queue": "node scripts/test-thumbnail-queue.mjs",
+    "build:quicklook:web": "tsc -p quick-look/tsconfig.json && node scripts/build-quicklook-web.mjs",
+    "build:quicklook": "tsc -p quick-look/tsconfig.json && node scripts/build-quicklook.mjs",
+    "build:quicklook:integration": "node scripts/build-quicklook-integration.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "icon": "tauri icon assets/logo-dark.png"

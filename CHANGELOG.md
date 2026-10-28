@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Added
+
+- **Finder Quick Look for GLB**: an embedded preview extension with orbit, zoom and Fit, system appearance, local Draco/meshopt/Basis decoders, and bounded file/scene validation — 新增访达空格预览自包含 GLB，支持旋转、缩放、适应与离线解码；超出快速预览预算时引导使用主应用
+- **Finder GLB thumbnails**: local, transparent model thumbnails with offline Draco/meshopt/KTX2 decoding, bounded requests and timeouts covering queueing, file reads and rendering — 新增访达 GLB 缩略图，支持离线压缩模型与贴图；排队、读取和渲染均受总超时与资源上限约束
+- **Adaptive preview capacity**: four tiers select a 128–512 MiB file budget from memory capacity, Metal recommendations and system conditions; a capacity badge shows the selected tier — 根据内存、Metal 推荐容量和系统状态自动选择四档预览预算，文件上限为 128–512 MiB，并显示当前容量档位
+- macOS bundle checks verify the app, conversion helper and both Quick Look extensions' signatures, architecture coverage, matching versions and offline resources — 打包校验覆盖主应用、转换工具、Quick Look 预览与缩略图扩展
+
+### Fixed
+
+- Space previews use a larger budget than background thumbnails and identify the exceeded resource and its estimated usage; a small compressed file is no longer described only as "too large" — 空格预览与后台缩略图分开预算，提高预览容量，并明确展示超限项目、预计占用及上限
+- Space preview budgets adapt to physical memory and the GPU's recommended working set, with a combined geometry/texture cap and reduced capacity under thermal or memory pressure — 根据内存与 GPU 推荐工作集自动调整空格预览容量，增加几何与贴图合计预算，并在过热或内存压力下收紧；后台缩略图维持原预算
+- Quick Look geometry accounting includes independently copied buffer views, preventing overlapping ranges from multiplying unbudgeted allocations — 几何预算计入 bufferView 独立拷贝，防止重叠范围放大内存占用
+- Quick Look sums actual mipmap dimensions and compressed-block padding, avoiding rounded texture-limit false positives and underestimates for narrow textures; unsupported HDR/raw-Zstd KTX2 paths use the full viewer — 按完整 mipmap 尺寸与压缩块补齐规则计算纹理占用，修正边界误拒与窄纹理低估；HDR 等未覆盖的 KTX2 路径提示使用主应用
+- Quick Look budgets include normalized animation output copies and expanded morph tracks, and enforce node depth regardless of traversal order — 快速预览预算补齐动画数据展开与变形轨道开销，并修复节点遍历顺序造成的深度漏检
+
+### Compatibility and limits
+
+- Verified on macOS 27.2 with Apple M5 / 32 GiB; minimum macOS 13.0 is unchanged. The release builds for Apple Silicon and Intel. See [validation scope](https://github.com/imboni/trivor/blob/v0.5.0/tests/README.md#hardware-adaptive-preview-budgets--2026-10-28) — 已在 macOS 27.2 / M5 / 32 GiB 实测，最低系统要求仍为 macOS 13.0，提供 Apple Silicon 与 Intel 通用构建
+- Finder previews require self-contained GLB files and retain decoded-resource, complexity and timeout limits; background thumbnails keep the 64 MiB file budget. Open larger or unsupported content in the main app. See [Quick Look budgets](https://github.com/imboni/trivor/blob/v0.5.0/quick-look/README.md#scope-and-limits) — 访达预览支持自包含 GLB，保留解码资源、复杂度及超时限制；后台缩略图文件上限为 64 MiB，更大型或不支持的内容请使用主应用
+
 ## [0.4.1] - 2026-10-24
 
 ### Added
@@ -172,7 +194,8 @@ First public release for **macOS 13+** — 面向 macOS 13+ 的首个公开发�
 - Initial Tauri 2 shell for viewing glTF and GLB models
 - Library sidebar, 3D viewport, inspector, themes, and bilingual UI
 
-[Unreleased]: https://github.com/imboni/trivor/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/imboni/trivor/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/imboni/trivor/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/imboni/trivor/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/imboni/trivor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/imboni/trivor/releases/tag/v0.3.0

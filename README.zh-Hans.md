@@ -18,6 +18,8 @@
 
 Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器。Rust 后端负责解析与元数据提取，WebGL 视口基于 [Google model-viewer](https://github.com/google/model-viewer) 渲染。
 
+**0.5.0 版本**新增访达 GLB 缩略图与可交互的**空格预览**，根据 Mac 硬件与系统状态自动选择四档预览容量。
+
 ## 功能
 
 | 模块 | 说明 |
@@ -29,6 +31,7 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 | **抠图导出** | 从当前视角导出透明背景 PNG；全屏预览、平移缩放后通过系统对话框保存 |
 | **模型导出** | 将原模型另存为自包含 GLB 或内嵌资源的单文件 glTF |
 | **系统集成** | 原生菜单栏；访达「打开方式」；可自定义快捷键 |
+| **访达快速预览** | GLB 缩略图与空格预览，支持旋转、缩放、适应和硬件自动选档，已包含在 0.5.0 中 |
 | **偏好设置** | 深色 / 浅色 / 跟随系统；英文与简体中文界面 |
 
 ## 系统要求
@@ -39,19 +42,19 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 | **架构** | Apple Silicon 与 Intel（Release 提供通用二进制） |
 | **格式** | `.gltf`（JSON + 外部 `.bin` / 贴图）与 `.glb`（单文件） |
 
-当前开发版已在 macOS 27.0.1（Apple Silicon）实测，使用 SDK 27.0 构建。详见[兼容性验证与范围](tests/README.md#macos-27-compatibility--2026-10-23)。
+0.5.0 已在 macOS 27.2（Apple Silicon）实测。本地验证使用 SDK 27.0，发布 CI 使用 macOS 15 构建机提供的 SDK，最低部署目标均为 macOS 13。通用构建包含 Intel 二进制，但本次未在 Intel 硬件或更早的 macOS 上进行运行实测。详见[测试结果与兼容性范围](tests/README.md)。
 
 > **说明：** `.gltf` 须与 sidecar 资源同目录。大型 GLB / glTF 先显示结构概览，再逐步细化，可随时停止；已实测约 **2 GB** 几何模型。显示为简化预览，具体预算与限制见 [大模型说明](docs/large-models.zh-Hans.md)。
 
 ## 安装
 
-预编译包发布于 [GitHub Releases](https://github.com/imboni/trivor/releases)。
+从 [GitHub Releases](https://github.com/imboni/trivor/releases/latest) 下载最新安装包。
 
 1. 下载最新 `.dmg`。
 2. 将 **Trivor** 拖入「应用程序」。
 3. 从访达或应用内 **文件 → 打开…** 打开模型。
 
-> **安全提示（非 App Store 分发）：** Trivor 通过 GitHub 发布，未上架 Mac App Store。首次启动时，macOS 可能提示应用「无法验证开发者」或被安全策略拦截，属站外安装的正常情况。
+> **安全提示：** Trivor 通过 GitHub 发布。默认发布包使用临时签名，尚未经过 Apple 公证，因此首次启动可能被 macOS 拦截。
 >
 > **允许运行（通常只需一次）：** 打开 **系统设置 → 隐私与安全性**，滚到页面底部 **安全性**，在 Trivor 相关提示旁点 **仍要打开**；或在访达中 **按住 Control 点按** **Trivor → 打开** 并确认。之后可从「应用程序」正常启动。
 
@@ -62,6 +65,15 @@ Trivor（极视）是一款轻量的 macOS 原生 **glTF / GLB** 模型查看器
 - **文件 → 打开…**（`⌘O`）— 选择 `.gltf` 或 `.glb`。
 - **文件 → 打开文件夹…**（`⌘⇧O`）— 扫描目录并列出支持的模型。
 - **访达** — 右键 `.gltf`、`.glb` 或文件夹 → **打开方式 → Trivor**。
+
+### 访达空格预览
+
+**Trivor 0.5.0 已包含此功能。** 安装完整应用后，在访达选中 `.glb` 并按空格即可预览。拖动旋转，滚动缩放，点击「适应」、按 `F` 或双击恢复适应视图。
+若未启用，可在系统设置中搜索「扩展」，在 Quick Look 中启用 **Trivor GLB Preview** 和 **Trivor GLB Thumbnail**。
+
+访达还会显示 GLB 模型缩略图，支持 Draco、meshopt 和 KTX2 贴图。缩略图使用固定斜视角与透明背景，在本地生成，无需打开主应用窗口。
+
+空格预览支持自包含 GLB 2.0，根据物理内存容量、GPU 建议值、温度和内存压力，在「标准、扩展、大容量、超大容量」四档中自动选择 **128–512 MiB** 文件预算，并限制解码后的几何、贴图、两者合计及场景复杂度。超限时会说明具体项目、预计占用和上限。后台缩略图保留较低的 **64 MiB** 文件预算，详见[支持范围与完整预算表](quick-look/README.md#scope-and-limits)。大型或引用外部资源的模型会提示用主应用打开，无法生成缩略图的文件保留系统默认图标。主应用仍支持约 2 GB 模型的分阶段预览。
 
 ### 模型库
 
@@ -170,6 +182,7 @@ trivor/
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
 | [SECURITY.md](SECURITY.md) | 安全漏洞报告 |
 | [docs/RELEASE.md](docs/RELEASE.md) | macOS 发布签名 |
+| [Quick Look](quick-look/README.md) | 访达空格预览、缩略图、支持范围与预算 |
 | [docs/large-models.zh-Hans.md](docs/large-models.zh-Hans.md) | 大模型预览与路线图 |
 | [docs/icon.md](docs/icon.md) | 应用图标工作流 |
 
